@@ -1,0 +1,12 @@
+[package]
+name = "battleship-commonware"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytes = "1.11.0"
+commonware-cryptography = "0.0.63"
+commonware-p2p = "0.0.63"
+commonware-runtime = "0.0.63"
+commonware-utils = "0.0.63"
+governor = "0.6.3"
