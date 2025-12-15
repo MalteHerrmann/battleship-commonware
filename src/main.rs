@@ -12,33 +12,49 @@
 ///    They should send simple messages with an increasing counter variable
 ///    for starters.
 ///
-///    - This can use hardcoded information first but should be extended to take input arguments
-///      to define the key of the running instance.
-///    - Real projects mostly use clap for this so that can be added here, too.
+///    - [ ] This can use hardcoded information first.
+/// 
+///    - [ ] Next, it should be extended to take input arguments
+///          to define the key of the running instance.
+///          Real projects mostly use clap for this so that can be added here, too.
+/// 
+///          The keys themselves could be added to e.g. a local config file and then parsed.
+/// 
+///    - [ ] Ultimately, there should be some connection request logic implemented,
+///          where a new peer is only accepted in case there is not an established peer
+///          connection already, and the peer is in a list of whitelisted addresses.
 ///
 /// 2. This can be extended to incorporate moves for the battleship game.
 ///    As a first iteration, just shoot at increasing fields A1, B1, ... .
 ///
 /// 3. Finally, e.g. using hashing operations, the players could play
 ///    against each other automatically and one could watch in the terminal.
-///
+/// 
+/// 4. There should be simulations added which make use of the deterministic runtime while
+///    the main application runs on the tokio runtime of the Commonware framework.
+/// 
+mod application;
+
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
 };
 
-use bytes::Bytes;
 use commonware_cryptography::{PrivateKeyExt as _, Signer, ed25519};
-use commonware_p2p::{Manager, Sender, authenticated::discovery};
-use commonware_runtime::{Metrics, Runner, deterministic};
+use commonware_p2p::{Manager, authenticated::discovery};
+use commonware_runtime::{Metrics, Runner, tokio};
 use commonware_utils::NZU32;
 use governor::Quota;
+use tracing::info;
 
 const ENDPOINT_1: u16 = 5670;
 const ENDPOINT_2: u16 = 5671;
 const MAX_MESSAGE_SIZE: u16 = 1024;
 
 fn main() {
+    // Initialize the tracing subscriber to print to stdout.
+    tracing_subscriber::fmt::init();
+
     // We're creating the private keys here that will communicate over the p2p
     // connection, in order to exchange messages about the intended moves in the game.
     let signer = ed25519::PrivateKey::from_seed(0);
@@ -50,9 +66,10 @@ fn main() {
     )];
 
     // The p2p setup uses the local config for this proof-of-concept.
+    //
     // TODO: does this have to be adjusted to check which key is running the binary?
     // we'll have to support running two instances via CLI flags.
-    println!("setting up p2p config");
+    info!("setting up p2p config");
     let p2p_config = discovery::Config::local(
         signer.clone(),
         b"BATTLESHIP_NAMESPACE",
@@ -62,12 +79,15 @@ fn main() {
         MAX_MESSAGE_SIZE.into(),
     );
 
-    // TODO: use tokio runner here - ideally abstract at some point.
-    let runner_config = deterministic::Config::new()
-        .with_seed(0)
-        .with_timeout(Some(Duration::from_secs(10)));
+    // // TODO: ideally abstract at some point to use the deterministic runner in tests / simulations (should be good for debugging).
+    // let runner_config = deterministic::Config::new()
+    //     .with_seed(0)
+    //     .with_timeout(Some(Duration::from_secs(10)));
 
-    let executor = deterministic::Runner::new(runner_config);
+    let runner_config = tokio::Config::new()
+        .with_read_write_timeout(Duration::from_secs(10));
+
+    let executor = tokio::Runner::new(runner_config);
 
     executor.start(|context| async move {
         let (mut network, mut oracle) =
@@ -80,24 +100,21 @@ fn main() {
 
         // This registes the channel over which communication
         // about the game state will be implemented.
+        let (gamestate_sender, gamestate_receiver) =
+            network.register(0, Quota::per_second(NZU32!(1)), 1);
+
+        // Here we're setting up the actor that updates the game state.
+        // After the initial setup we have to start the actor, providing
+        // the registered channels for p2p communication.
         //
-        // TODO: refactor to actor here and implement run and start methods.
-        let (mut sender, receiver) = network.register(0, Quota::per_second(NZU32!(1)), 1);
+        // TODO: where to use the `gamestate_mailbox`? Shouldn't that be used to be passed into the start method maybe?
+        // do we even need the mailbox? Isn't that only for the case where the game state actor is passed into another actor?
+        let (gamestate_actor, _gamestate_mailbox) =
+            application::actor::GameStateActor::new(context, signer);
 
-        // TODO: do something with start handler here?
-        let network_handler = network.start();
+        gamestate_actor.start(gamestate_sender, gamestate_receiver);
 
-        // NOTE: This currently uses ::All but ::One would also work since there's
-        // only one peer.
-        //
-        // TODO: refactor this to be sent upon calling a different command, to control the game.
-        let message_bytes = Bytes::from_static(b"hello");
-        sender
-            .send(commonware_p2p::Recipients::All, message_bytes, false)
-            .await
-            .expect("failed to send via p2p");
-
-        network_handler.abort();
+        network.start().await.expect("Network failed");
     });
 
     println!("done.");
