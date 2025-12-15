@@ -22,6 +22,8 @@
 /// 3. Finally, e.g. using hashing operations, the players could play
 ///    against each other automatically and one could watch in the terminal.
 ///
+mod application;
+
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     time::Duration,
@@ -62,7 +64,7 @@ fn main() {
         MAX_MESSAGE_SIZE.into(),
     );
 
-    // TODO: use tokio runner here - ideally abstract at some point.
+    // TODO: use tokio runner here - ideally abstract at some point to use the deterministic runner in tests / simulations (should be good for debugging).
     let runner_config = deterministic::Config::new()
         .with_seed(0)
         .with_timeout(Some(Duration::from_secs(10)));
@@ -80,24 +82,29 @@ fn main() {
 
         // This registes the channel over which communication
         // about the game state will be implemented.
-        //
-        // TODO: refactor to actor here and implement run and start methods.
-        let (mut sender, receiver) = network.register(0, Quota::per_second(NZU32!(1)), 1);
+        let (gamestate_sender, gamestate_receiver) =
+            network.register(0, Quota::per_second(NZU32!(1)), 1);
 
-        // TODO: do something with start handler here?
-        let network_handler = network.start();
+        // Here we're setting up the actor that updates the game state.
+        // After the initial setup we have to start the actor, providing
+        // the registered channels for p2p communication.
+        let (gamestate_actor, _gamestate_mailbox) =
+            application::actor::GameStateActor::new(context, signer);
 
-        // NOTE: This currently uses ::All but ::One would also work since there's
-        // only one peer.
-        //
-        // TODO: refactor this to be sent upon calling a different command, to control the game.
-        let message_bytes = Bytes::from_static(b"hello");
-        sender
-            .send(commonware_p2p::Recipients::All, message_bytes, false)
-            .await
-            .expect("failed to send via p2p");
+        gamestate_actor.start(gamestate_sender, gamestate_receiver);
 
-        network_handler.abort();
+        // // NOTE: This currently uses ::All but ::One would also work since there's
+        // // only one peer.
+        // //
+        // // TODO: refactor this to be sent upon calling a different command, to control the game.
+        // // TODO: this should be sent in a different process?
+        // let message_bytes = Bytes::from_static(b"hello");
+        // gamestate_sender
+        //     .send(commonware_p2p::Recipients::All, message_bytes, false)
+        //     .await
+        //     .expect("failed to send via p2p");
+
+        network.start().await.expect("Network failed");
     });
 
     println!("done.");

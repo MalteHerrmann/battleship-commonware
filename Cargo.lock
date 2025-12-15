@@ -167,7 +167,9 @@ dependencies = [
  "commonware-p2p",
  "commonware-runtime",
  "commonware-utils",
+ "futures",
  "governor",
+ "rand",
 ]
 
 [[package]]
