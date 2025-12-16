@@ -1,7 +1,7 @@
 /// The application's actor controls the message flow
 /// between the two participating nodes.
 use super::{
-    gamestate::{Move},
+    gamestate::Move,
     ingress::{Mailbox, Message},
 };
 
@@ -20,10 +20,10 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     context: ContextCell<R>,
     crypto: C,
     namespace: Vec<u8>,
+    // TODO: what should mailbox be used for again? currently not in use..
     mailbox: mpsc::Receiver<Message>,
 
     // Game logic (TODO: refactor to GameState struct)
-
     /// Signals if the node is ready.
     is_ready: bool,
 
@@ -34,7 +34,7 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     my_turn: bool,
 
     /// The list of the exchanged moves.
-    moves: Vec<Move>
+    moves: Vec<Move>,
 }
 
 impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
@@ -49,7 +49,6 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 mailbox,
 
                 // Game logic
-
                 is_ready: false,
                 opponent_ready: false,
                 my_turn: false,
@@ -78,41 +77,47 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             if !self.is_ready {
                 info!("not ready yet; sending ready message");
 
-                let _ = self.send(sender.clone(), Message::Ready).await.expect("failed to send ready message");
+                let _ = self
+                    .send(sender.clone(), Message::Ready)
+                    .await
+                    .expect("failed to send ready message");
                 self.is_ready = true;
 
-                continue
+                continue;
             }
 
-            // We're waiting to receive an incoming 
+            // We're waiting to receive an incoming
             info!("waiting for receiving message on receiver");
             let deserialized = match receiver.recv().await {
                 Ok((_, msg)) => Message::from(msg),
                 Err(_) => {
                     error!("failed to receive message");
-                    continue
+                    continue;
                 }
             };
 
             match deserialized {
-                Message::Attack{ m: _ } => {
+                Message::Attack { m: _ } => {
                     if !self.opponent_ready {
                         error!("opponent not marked as ready yet; can't process attack");
-                        continue
+                        continue;
                     }
 
                     info!("handling attack: {:?}", deserialized);
-                    self.handle_attack(deserialized).expect("failed to handle attack");
+                    self.handle_attack(deserialized)
+                        .expect("failed to handle attack");
                     self.my_turn = !self.my_turn;
-                },
+                }
                 Message::Ready => self.opponent_ready = true,
-                _ => unimplemented!("other message types received")
+                _ => unimplemented!("other message types received"),
             }
 
             // TODO: is clone fine here for the sender? should be since it's mpsc so multiple producers should be fine.
             if self.my_turn {
                 let _ = &self.attack(sender.clone()).await.expect("failed to attack");
             }
+
+            // TODO: do we need to check for messages in self.mailbox.next() here? where should that plug in?
 
             continue;
         }
@@ -128,22 +133,16 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         let x = 0;
         let y = 0;
 
-        let msg = Message::Attack{ m: Move::new(
-            self.next_move(),
-            self.crypto.public_key().to_string(),
-            x,
-            y,
-        )};
+        let msg = Message::Attack {
+            m: Move::new(self.next_move(), self.crypto.public_key().to_string(), x, y),
+        };
 
         info!("sending sink message: {:?}", msg);
         self.send(sender, msg).await
     }
 
     /// Updates the internal game state when receiving an incoming message.
-    fn handle_attack(
-        &mut self,
-        message: Message,
-    ) -> eyre::Result<()> {
+    fn handle_attack(&mut self, message: Message) -> eyre::Result<()> {
         if let Err(e) = (&message).validate() {
             return Err(e);
         }
@@ -153,13 +152,13 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // TODO: here the game state should be updated.
                 self.moves.push(m);
                 Ok(())
-            },
-            _ => Err(eyre::eyre!("wrong message type"))
+            }
+            _ => Err(eyre::eyre!("wrong message type")),
         }
     }
 
     fn next_move(&self) -> u8 {
-        self.moves[self.moves.len()-1].get_number() + 1
+        self.moves[self.moves.len() - 1].get_number() + 1
     }
 
     /// Sends a given message to all recipients.
