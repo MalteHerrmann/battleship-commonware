@@ -1,5 +1,5 @@
 /// # Battleship Commonware
-/// 
+///
 /// This crate contains a simple implementation
 /// of the battleship Rust implementation by Orhun on GitHub:
 /// https://github.com/orhun/battleship-rs.
@@ -7,39 +7,39 @@
 /// This is intended to be a hands-on exercise of integrating
 /// an existing codebase in Rust with the Commonware set of
 /// utilities.
-/// 
+///
 /// ## Usage
-/// 
+///
 /// It is required to set up two players, that will connect via P2P.
 /// To generate the corresponding configurations, first we can generate
 /// two private/public key pairs for each player:
-/// 
+///
 /// ```shell
 /// cargo run --bin keys -- --id 0
 /// ```
-/// 
+///
 /// ```shell
 /// cargo run --bin keys -- --id 1
 /// ```
-/// 
+///
 /// This will output a public and private key for each of the players,
 /// which can then be used to create the full configuration per player:
-/// 
+///
 /// ```shell
 /// RUST_LOG=info cargo run --bin setup -- --private-key b2f7f581d6de3c06a822fd6e7e8265fbc00f8401696a5bdc34f5a6d2ff3f922f --port 5670 --peer-endpoint="127.0.0.1:5671" --peer-public-key="478b8e507e0bb2b18c0f9e0824769e8562d10df9abe2e774896f82b4b4405266"
 /// ```
-/// 
+///
 /// ```shell
 /// RUST_LOG=info cargo run --bin setup -- --private-key 9a3744504560639ec670b7a17d492b273e077b0a96bef58ba7760779e544546e --port 5671 --peer-endpoint="127.0.0.1:5670" --peer-public-key="edd0f6de342a1e6a7236d6244f23d83eedfcecd059a386c85055701498e77033"
 /// ```
-/// 
+///
 /// After generating the configuration files, the actual game logic can be started.
 /// To do so, run the `player` binary:
-/// 
+///
 /// ```shell
-/// RUST_LOG=info cargo run --bin player -- --public-key edd0f6de342a1e6a7236d6244f23d83eedfcecd059a386c85055701498e77033 
+/// RUST_LOG=info cargo run --bin player -- --public-key edd0f6de342a1e6a7236d6244f23d83eedfcecd059a386c85055701498e77033
 /// ```
-/// 
+///
 /// ```shell
 /// RUST_LOG=info cargo run --bin player -- --public-key 478b8e507e0bb2b18c0f9e0824769e8562d10df9abe2e774896f82b4b4405266
 /// ```
@@ -69,7 +69,7 @@
 ///
 /// - [ ] There should be simulations added which make use of the deterministic runtime while
 ///       the main application runs on the tokio runtime of the Commonware framework.
-/// 
+///
 /// - [ ] Eventually, it could be cool to store the game state using `commonware-storage` to understand
 ///       that crate better as well.
 ///

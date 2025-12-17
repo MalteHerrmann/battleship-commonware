@@ -21,12 +21,8 @@ impl Message {
     pub fn validate(&self) -> eyre::Result<()> {
         match self {
             Message::Attack { m } => {
-                if (&m).get_x() > 8 || (&m).get_y() > 8 {
-                    return Err(eyre::eyre!(
-                        "invalid target: {}-{}",
-                        (&m).get_x(),
-                        (&m).get_y()
-                    ));
+                if m.get_x() > 8 || m.get_y() > 8 {
+                    return Err(eyre::eyre!("invalid target: {}-{}", m.get_x(), m.get_y()));
                 }
             }
             Message::EndGame { winner } => {
@@ -42,9 +38,9 @@ impl Message {
     }
 }
 
-impl Into<bytes::Bytes> for Message {
-    fn into(self) -> bytes::Bytes {
-        let serialized = serde_yaml::to_string(&self).expect("failed to serialize message");
+impl From<Message> for bytes::Bytes {
+    fn from(val: Message) -> Self {
+        let serialized = serde_yaml::to_string(&val).expect("failed to serialize message");
 
         bytes::Bytes::from(serialized.into_bytes())
     }

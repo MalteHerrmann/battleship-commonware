@@ -2,7 +2,8 @@ use std::net::SocketAddr;
 
 use commonware_codec::ReadExt as _;
 use commonware_cryptography::{
-    PrivateKeyExt as _, Signer, bls12381::primitives::poly::public, ed25519::{PrivateKey, PublicKey}
+    Signer,
+    ed25519::{PrivateKey, PublicKey},
 };
 use commonware_utils::from_hex_formatted;
 use serde::{Deserialize, Serialize};
@@ -16,7 +17,12 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(private_key: &PrivateKey, port: u16, peer_endpoint: &str, peer_public_key: &str) -> Self {
+    pub fn new(
+        private_key: &PrivateKey,
+        port: u16,
+        peer_endpoint: &str,
+        peer_public_key: &str,
+    ) -> Self {
         Self {
             private_key: private_key.to_string(),
             port,
@@ -38,7 +44,7 @@ impl Config {
             std::fs::create_dir_all(dir_path)?;
         }
 
-        std::fs::write(&path, serde_yaml::to_string(self)?)?;
+        std::fs::write(path, serde_yaml::to_string(self)?)?;
 
         Ok(())
     }
@@ -57,7 +63,7 @@ impl Config {
 
     /// Retrieve a configuration stored in a given filepath.
     pub fn read(filepath: &str) -> eyre::Result<Self> {
-        let contents = std::fs::read_to_string(&std::path::Path::new(filepath))?;
+        let contents = std::fs::read_to_string(std::path::Path::new(filepath))?;
         let config: Config = serde_yaml::from_str(&contents)?;
 
         Ok(config)
@@ -74,7 +80,7 @@ impl Config {
 
 /// Builds the configuration file path for the given player ID.
 pub fn get_config_path(public_key: &PublicKey) -> String {
-    format!("./.battleship-commonware/config-{}.yaml", public_key.to_string())
+    format!("./.battleship-commonware/config-{}.yaml", public_key)
 }
 
 /// Parses a hex-formatted ed25510 public key.
@@ -133,11 +139,7 @@ mod tests {
         );
 
         assert!(
-            !Config::new(
-                &PrivateKey::from_seed(0),
-                5671,
-                "127.0.0.1:5670",
-                "hij0123",)
+            !Config::new(&PrivateKey::from_seed(0), 5671, "127.0.0.1:5670", "hij0123",)
                 .validate()
                 .is_ok()
         );

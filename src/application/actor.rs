@@ -12,8 +12,8 @@ use commonware_runtime::{ContextCell, Spawner, spawn_cell};
 use eyre::Context;
 use futures::channel::mpsc;
 use rand::{CryptoRng, Rng};
-use tokio::time::{sleep, Duration};
-use tracing::{debug, error, info};
+use tokio::time::{Duration, sleep};
+use tracing::{error, info};
 
 // TODO: use bigger mailbox size here?
 const MAILBOX_SIZE: usize = 1;
@@ -91,7 +91,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     if !self.game_ready {
                         info!("game not ready yet; sending ready message to other player");
 
-                        let _ = self
+                        self
                             .send(sender.clone(), Message::Ready)
                             .await
                             .expect("failed to send ready message");
@@ -136,7 +136,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             Message::Attack { m } => {
                 // we're only allowing monotonically increasing numbers, incremented by 1, here
                 if m.get_number() as usize != self.moves.len() + 1 {
-                    Err(eyre::eyre!("invalid move number: {}; expected: {}", m.get_number(), self.moves.len()+1))
+                    Err(eyre::eyre!(
+                        "invalid move number: {}; expected: {}",
+                        m.get_number(),
+                        self.moves.len() + 1
+                    ))
                 } else {
                     self.moves.push(m);
                     self.my_turn = true;
@@ -151,21 +155,29 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// This method implements the main application logic for any incoming messages.
     /// This includes the attacks, information about player readiness, as well as the message
     /// to communicate the game ending.
-    async fn handle_message(&mut self, sender: impl Sender<PublicKey = C::PublicKey>, msg: Message) -> eyre::Result<()> {
+    async fn handle_message(
+        &mut self,
+        sender: impl Sender<PublicKey = C::PublicKey>,
+        msg: Message,
+    ) -> eyre::Result<()> {
         match msg {
             Message::Attack { m: _ } => {
                 if !self.game_ready {
-                    return Err(eyre::eyre!("opponent not marked as ready yet; can't process attack"));
+                    return Err(eyre::eyre!(
+                        "opponent not marked as ready yet; can't process attack"
+                    ));
                 }
 
                 info!("handling attack: {:?}", msg);
-                self.handle_attack(msg)
-                    .expect("failed to handle attack");
-            },
+                self.handle_attack(msg).expect("failed to handle attack");
+            }
             Message::Ready => {
                 info!("received ready message");
 
-                assert!(!self.game_ready, "game should not be ready when receiving ready message from other player!");
+                assert!(
+                    !self.game_ready,
+                    "game should not be ready when receiving ready message from other player!"
+                );
 
                 // We're sending a Ready message back so that the opponent is also informed of our readiness.
                 // In case, `self.my_turn` is already true, this means that the received `Ready` message is the
@@ -174,14 +186,13 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
 
                 if !self.my_turn {
                     info!("sending ready message back");
-                    let _ = self
-                        .send(sender.clone(), Message::Ready)
+                    self.send(sender.clone(), Message::Ready)
                         .await
                         .expect("failed to send ready message");
                 }
 
                 self.game_ready = true;
-            },
+            }
             Message::EndGame { winner: _ } => unimplemented!("end game logic not yet implemented"),
             _ => unimplemented!("other message types received"),
         }

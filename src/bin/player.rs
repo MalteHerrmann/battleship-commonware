@@ -26,10 +26,10 @@ fn main() {
 
     let args = command.get_matches();
     let public_key = parse_public_key(
-        args
-            .get_one::<String>("public-key")
-            .expect("must provide --public-key")
-    ).expect("id must be valid u16");
+        args.get_one::<String>("public-key")
+            .expect("must provide --public-key"),
+    )
+    .expect("id must be valid u16");
 
     // We're creating the private keys here that will communicate over the p2p
     // connection, in order to exchange messages about the intended moves in the game.
@@ -52,8 +52,8 @@ fn main() {
     let p2p_config = discovery::Config::local(
         signer.clone(),
         b"BATTLESHIP_NAMESPACE",
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), config.port.into()),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), config.port.into()),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), config.port),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), config.port),
         bootstrappers,
         MAX_MESSAGE_SIZE.into(),
     );

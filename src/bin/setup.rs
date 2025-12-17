@@ -4,7 +4,6 @@ use battleship_commonware::config::config::{get_config_path, parse_private_key};
 
 use clap::{Command, arg};
 use commonware_cryptography::Signer;
-use tracing_subscriber;
 
 fn main() {
     tracing_subscriber::fmt::init();
@@ -18,10 +17,10 @@ fn main() {
 
     let args = command.get_matches();
     let private_key = parse_private_key(
-        args
-            .get_one::<String>("private-key")
-            .expect("must set --private-key")
-    ).expect("failed to parse private key");
+        args.get_one::<String>("private-key")
+            .expect("must set --private-key"),
+    )
+    .expect("failed to parse private key");
 
     let port = args
         .get_one::<String>("port")
@@ -37,7 +36,8 @@ fn main() {
         .get_one::<String>("peer-public-key")
         .expect("must set --peer-public-key");
 
-    let config = battleship_commonware::Config::new(&private_key, port, peer_endpoint, peer_public_key);
+    let config =
+        battleship_commonware::Config::new(&private_key, port, peer_endpoint, peer_public_key);
     config.validate().expect("invalid config");
 
     config
