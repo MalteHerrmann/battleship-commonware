@@ -22,19 +22,19 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     let command = clap::Command::new("battleship-commonware-player")
-        .args([arg!(--id <ID> "the player id (decides which config to use)")]);
+        .args([arg!(--"public-key" <PUBKEY> "the player's public key")]);
 
     let args = command.get_matches();
-    let id = args
-        .get_one::<String>("id")
-        .expect("must provide --id")
-        .parse::<u16>()
-        .expect("id must be valid u16");
+    let public_key = parse_public_key(
+        args
+            .get_one::<String>("public-key")
+            .expect("must provide --public-key")
+    ).expect("id must be valid u16");
 
     // We're creating the private keys here that will communicate over the p2p
     // connection, in order to exchange messages about the intended moves in the game.
 
-    let config = Config::read(&get_config_path(id)).expect("failed to read config");
+    let config = Config::read(&get_config_path(&public_key)).expect("failed to read config");
 
     let peer_public_key = parse_public_key(&config.peer_public_key).expect("invalid public key");
     let signer = config.get_private_key();

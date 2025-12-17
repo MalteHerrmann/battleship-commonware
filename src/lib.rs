@@ -26,22 +26,22 @@
 /// which can then be used to create the full configuration per player:
 /// 
 /// ```shell
-/// cargo run --bin setup -- --id 0 --port 5670 --peer-endpoint="127.0.0.1:5671" --peer-public-key="478b8e507e0bb2b18c0f9e0824769e8562d10df9abe2e774896f82b4b4405266"
+/// RUST_LOG=info cargo run --bin setup -- --private-key b2f7f581d6de3c06a822fd6e7e8265fbc00f8401696a5bdc34f5a6d2ff3f922f --port 5670 --peer-endpoint="127.0.0.1:5671" --peer-public-key="478b8e507e0bb2b18c0f9e0824769e8562d10df9abe2e774896f82b4b4405266"
 /// ```
 /// 
 /// ```shell
-/// cargo run --bin setup -- --id 1 --port 5671 --peer-endpoint="127.0.0.1:5670" --peer-public-key="edd0f6de342a1e6a7236d6244f23d83eedfcecd059a386c85055701498e77033"
+/// RUST_LOG=info cargo run --bin setup -- --private-key 9a3744504560639ec670b7a17d492b273e077b0a96bef58ba7760779e544546e --port 5671 --peer-endpoint="127.0.0.1:5670" --peer-public-key="edd0f6de342a1e6a7236d6244f23d83eedfcecd059a386c85055701498e77033"
 /// ```
 /// 
 /// After generating the configuration files, the actual game logic can be started.
 /// To do so, run the `player` binary:
 /// 
 /// ```shell
-/// cargo run --bin player -- --id 0
+/// RUST_LOG=info cargo run --bin player -- --public-key edd0f6de342a1e6a7236d6244f23d83eedfcecd059a386c85055701498e77033 
 /// ```
 /// 
 /// ```shell
-/// cargo run --bin player -- --id 1
+/// RUST_LOG=info cargo run --bin player -- --public-key 478b8e507e0bb2b18c0f9e0824769e8562d10df9abe2e774896f82b4b4405266
 /// ```
 ///
 /// ## Implementation Steps

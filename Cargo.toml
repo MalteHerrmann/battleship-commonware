@@ -12,8 +12,8 @@ name = "player"
 path = "src/bin/player.rs"
 
 [[bin]]
-name = "public_key"
-path = "src/bin/public_key.rs"
+name = "keys"
+path = "src/bin/keys.rs"
 
 [dependencies]
 bytes = "1.11.0"

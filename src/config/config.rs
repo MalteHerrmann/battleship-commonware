@@ -2,14 +2,10 @@ use std::net::SocketAddr;
 
 use commonware_codec::ReadExt as _;
 use commonware_cryptography::{
-    PrivateKeyExt as _, Signer,
-    ed25519::{PrivateKey, PublicKey},
+    PrivateKeyExt as _, Signer, bls12381::primitives::poly::public, ed25519::{PrivateKey, PublicKey}
 };
 use commonware_utils::from_hex_formatted;
 use serde::{Deserialize, Serialize};
-
-/// Defines the base port from which onward the players are assigned to.
-const BASE_PORT: u16 = 5670;
 
 #[derive(Debug, Deserialize, Serialize, PartialEq)]
 pub struct Config {
@@ -20,12 +16,9 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn new(id: u16, peer_endpoint: &str, peer_public_key: &str) -> Self {
-        let private_key = PrivateKey::from_seed(id as u64).to_string();
-        let port = BASE_PORT + id;
-
+    pub fn new(private_key: &PrivateKey, port: u16, peer_endpoint: &str, peer_public_key: &str) -> Self {
         Self {
-            private_key,
+            private_key: private_key.to_string(),
             port,
             peer_endpoint: peer_endpoint.into(),
             peer_public_key: peer_public_key.into(),
@@ -80,8 +73,8 @@ impl Config {
 }
 
 /// Builds the configuration file path for the given player ID.
-pub fn get_config_path(id: u16) -> String {
-    format!("./.battleship-commonware/config-{}.yaml", id)
+pub fn get_config_path(public_key: &PublicKey) -> String {
+    format!("./.battleship-commonware/config-{}.yaml", public_key.to_string())
 }
 
 /// Parses a hex-formatted ed25510 public key.
@@ -114,7 +107,8 @@ mod tests {
     #[test]
     fn test_new_config() {
         let config = Config::new(
-            1,
+            &PrivateKey::from_seed(0),
+            5670,
             "127.0.0.1:5671".into(),
             "9a3744504560639ec670b7a17d492b273e077b0a96bef58ba7760779e544546e".into(),
         );
@@ -129,7 +123,8 @@ mod tests {
     fn test_invalid_config() {
         assert!(
             !Config::new(
-                0,
+                &PrivateKey::from_seed(0),
+                5670,
                 "abc",
                 "9a3744504560639ec670b7a17d492b273e077b0a96bef58ba7760779e544546e",
             )
@@ -138,7 +133,11 @@ mod tests {
         );
 
         assert!(
-            !Config::new(0, "127.0.0.1:5670", "hij0123",)
+            !Config::new(
+                &PrivateKey::from_seed(0),
+                5671,
+                "127.0.0.1:5670",
+                "hij0123",)
                 .validate()
                 .is_ok()
         );
@@ -147,7 +146,8 @@ mod tests {
     #[test]
     fn test_export_and_read() {
         let config = Config::new(
-            1,
+            &PrivateKey::from_seed(0),
+            5670,
             "127.0.0.1:5671".into(),
             "9a3744504560639ec670b7a17d492b273e077b0a96bef58ba7760779e544546e".into(),
         );

@@ -140,7 +140,6 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 } else {
                     self.moves.push(m);
                     self.my_turn = true;
-                    info!("setting my turn to true");
 
                     Ok(())
                 }
