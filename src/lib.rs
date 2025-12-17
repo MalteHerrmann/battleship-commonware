@@ -46,9 +46,9 @@
 ///
 /// ## Implementation Steps
 ///
-/// 1. Start a simple setup where commonware-p2p communicates between two nodes (two keys).
-///    They should send simple messages with an increasing counter variable
-///    for starters.
+/// - [x]  Start a simple setup where commonware-p2p communicates between two nodes (two keys).
+///        They should send simple messages with an increasing counter variable
+///        for starters.
 ///
 ///    - [x] This can use hardcoded information first.
 ///
@@ -61,14 +61,17 @@
 ///          where a new peer is only accepted in case there is not an established peer
 ///          connection already, and the peer is in a list of whitelisted addresses.
 ///
-/// 2. This can be extended to incorporate moves for the battleship game.
-///    As a first iteration, just shoot at increasing fields A1, B1, ... .
+/// - [ ] This can be extended to incorporate moves for the battleship game.
+///       As a first iteration, just shoot at increasing fields A1, B1, ... .
 ///
-/// 3. Finally, e.g. using hashing operations, the players could play
-///    against each other automatically and one could watch in the terminal.
+/// - [ ] Finally, e.g. using hashing operations, the players could play
+///       against each other automatically and one could watch in the terminal.
 ///
-/// 4. There should be simulations added which make use of the deterministic runtime while
-///    the main application runs on the tokio runtime of the Commonware framework.
+/// - [ ] There should be simulations added which make use of the deterministic runtime while
+///       the main application runs on the tokio runtime of the Commonware framework.
+/// 
+/// - [ ] Eventually, it could be cool to store the game state using `commonware-storage` to understand
+///       that crate better as well.
 ///
 pub mod application;
 pub mod config;
