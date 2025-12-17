@@ -1,3 +1,3 @@
-pub(crate) mod actor;
+pub mod actor;
 mod gamestate;
 mod ingress;

@@ -1,2 +1,8 @@
+# Rust builds
 /target
+
+# IDE files
 /.vscode
+
+# Config data
+/.battleship-commonware

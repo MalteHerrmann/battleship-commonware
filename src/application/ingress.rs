@@ -20,11 +20,11 @@ impl Message {
     /// Validates the contents of the message.
     pub fn validate(&self) -> eyre::Result<()> {
         match self {
-            Message::Attack{ m } => {
-                if (&m).get_x() > 8 || (&m).get_y() > 8 {
-                    return Err(eyre::eyre!("invalid target: {}-{}", (&m).get_x(), (&m).get_y()));
+            Message::Attack { m } => {
+                if m.get_x() > 8 || m.get_y() > 8 {
+                    return Err(eyre::eyre!("invalid target: {}-{}", m.get_x(), m.get_y()));
                 }
-            },
+            }
             Message::EndGame { winner } => {
                 if winner.is_empty() {
                     // TODO: return error instead of panic
@@ -38,10 +38,9 @@ impl Message {
     }
 }
 
-impl Into<bytes::Bytes> for Message {
-    fn into(self) -> bytes::Bytes {
-        let serialized = serde_json::to_string(&self)
-            .expect("failed to serialize message");
+impl From<Message> for bytes::Bytes {
+    fn from(val: Message) -> Self {
+        let serialized = serde_yaml::to_string(&val).expect("failed to serialize message");
 
         bytes::Bytes::from(serialized.into_bytes())
     }
@@ -49,8 +48,7 @@ impl Into<bytes::Bytes> for Message {
 
 impl From<bytes::Bytes> for Message {
     fn from(value: bytes::Bytes) -> Self {
-        serde_json::from_slice(value.iter().as_slice())
-            .expect("failed to deserialize bytes")
+        serde_yaml::from_slice(value.iter().as_slice()).expect("failed to deserialize bytes")
     }
 }
 
