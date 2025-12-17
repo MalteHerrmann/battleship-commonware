@@ -6,6 +6,7 @@ use super::{
 };
 
 use commonware_cryptography::Signer;
+use commonware_macros::select;
 use commonware_p2p::{Receiver, Recipients, Sender};
 use commonware_runtime::{ContextCell, Spawner, spawn_cell};
 use eyre::Context;
@@ -71,55 +72,62 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         sender: impl Sender<PublicKey = C::PublicKey>,
         mut receiver: impl Receiver<PublicKey = C::PublicKey>,
     ) {
-        for _ in 0..20 {
+        // TODO: should this really use an unbounded loop here? Or do smth. like `while let Some(msg) = self.mailbox.next()`? But it's not guaranteed that this actor will immediately get a message sent to it...
+        // TODO: should there e.g. be two separate actors? One that does the connection and the P2P stuff? And the other one that's just implemented the game logic? I guess this could be implemented at a later point but isn't required for it to run.
+        loop {
+            info!("at top of select!");
             debug!("ready: {}", self.is_ready);
             debug!("opponent ready: {}", self.opponent_ready);
-            if !self.is_ready {
-                info!("not ready yet; sending ready message");
+            select! {
+                // We're waiting to receive an incoming
+                msg = receiver.recv().await => {
+                    info!("got message");
+                    let deserialized = match msg {
+                        Ok((_, msg)) => Message::from(msg),
+                        Err(_) => {
+                            error!("failed to receive message");
+                            continue;
+                        }
+                    };
 
-                let _ = self
-                    .send(sender.clone(), Message::Ready)
-                    .await
-                    .expect("failed to send ready message");
-                self.is_ready = true;
+                    match deserialized {
+                        Message::Attack { m: _ } => {
+                            if !self.opponent_ready {
+                                error!("opponent not marked as ready yet; can't process attack");
+                                continue;
+                            }
 
-                continue;
-            }
-
-            // We're waiting to receive an incoming
-            info!("waiting for receiving message on receiver");
-            let deserialized = match receiver.recv().await {
-                Ok((_, msg)) => Message::from(msg),
-                Err(_) => {
-                    error!("failed to receive message");
-                    continue;
-                }
-            };
-
-            match deserialized {
-                Message::Attack { m: _ } => {
-                    if !self.opponent_ready {
-                        error!("opponent not marked as ready yet; can't process attack");
-                        continue;
+                            info!("handling attack: {:?}", deserialized);
+                            self.handle_attack(deserialized)
+                                .expect("failed to handle attack");
+                            self.my_turn = !self.my_turn;
+                        }
+                        Message::Ready => self.opponent_ready = true,
+                        _ => unimplemented!("other message types received"),
                     }
 
-                    info!("handling attack: {:?}", deserialized);
-                    self.handle_attack(deserialized)
-                        .expect("failed to handle attack");
-                    self.my_turn = !self.my_turn;
+                },
+                Delay:: => {
+                    match {
+                        !self.is_ready || !self.opponent_ready => {
+                            info!("not ready yet; sending ready message to signal to other player.");
+
+                            let _ = self
+                                .send(sender.clone(), Message::Ready)
+                                .await
+                                .expect("failed to send ready message");
+
+                            self.is_ready = true;
+                        },
+                        self.my_turn => {
+                            // TODO: is clone fine here for the sender? should be since it's mpsc so multiple producers should be fine.
+                            let _ = &self.attack(sender.clone()).await.expect("failed to attack");
+                        },
+                        _ => (),
+                    }
                 }
-                Message::Ready => self.opponent_ready = true,
-                _ => unimplemented!("other message types received"),
+                // TODO: do we need to check for messages in self.mailbox.next() here? where should that plug in?
             }
-
-            // TODO: is clone fine here for the sender? should be since it's mpsc so multiple producers should be fine.
-            if self.my_turn {
-                let _ = &self.attack(sender.clone()).await.expect("failed to attack");
-            }
-
-            // TODO: do we need to check for messages in self.mailbox.next() here? where should that plug in?
-
-            continue;
         }
 
         info!("iterations passed");
