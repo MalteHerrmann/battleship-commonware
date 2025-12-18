@@ -202,7 +202,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 self.my_turn = true;
 
                 // we're sending the message back with the information if the attack was a hit or miss.
-                match is_hit {
+                let _ = match is_hit {
                     true => {
                         info!("ship was hit");
                         self.send(sender.clone(), Message::Hit { m: m.clone() }).await?;
@@ -214,7 +214,10 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                         Ok(())
                     },
                     false => self.send(sender, Message::Miss { m }).await,
-                }
+                };
+
+                self.game.print_attacks()?;
+                self.game.print_grid()
             }
             _ => Err(eyre::eyre!("wrong message type")),
         }

@@ -88,7 +88,7 @@ fn main() {
         // the registered channels for p2p communication.
         //
         // TODO: where to use the `gamestate_mailbox`? Shouldn't that be used to be passed into the start method maybe?
-        // do we even need the mailbox? Isn't that only for the case where the game state actor is passed into another actor?
+        // do we even need the mailbox? Isn't that only for the case where the game state actor communicates with another actor?
         let (gamestate_actor, _gamestate_mailbox) = GameStateActor::new(context, signer.clone());
 
         gamestate_actor.start(gamestate_sender, gamestate_receiver);
