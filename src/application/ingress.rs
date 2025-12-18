@@ -11,7 +11,11 @@ pub enum Message {
     /// Attack an oppenent's field at the given coordinate.
     Attack { m: gamestate::Move },
     /// Signals the end of the game based on all ships of one player being hit.
-    EndGame { winner: String },
+    EndGame,
+    /// Signals that a move has successfully hit a ship.
+    Hit { m: gamestate::Move },
+    /// Signals that a move has failed to hit a target.
+    Miss { m: gamestate::Move },
     /// Signals to the other peer that the player is ready.
     Ready,
 }
@@ -20,17 +24,10 @@ impl Message {
     /// Validates the contents of the message.
     pub fn validate(&self) -> eyre::Result<()> {
         match self {
-            Message::Attack { m } => {
-                if m.get_x() > 8 || m.get_y() > 8 {
-                    return Err(eyre::eyre!("invalid target: {}-{}", m.get_x(), m.get_y()));
-                }
-            }
-            Message::EndGame { winner } => {
-                if winner.is_empty() {
-                    // TODO: return error instead of panic
-                    return Err(eyre::eyre!("winner cannot be empty"));
-                }
-            }
+            Message::Attack { m } => m.validate()?,
+            Message::EndGame => (),
+            Message::Hit { m } => m.validate()?,
+            Message::Miss { m } => m.validate()?,
             Message::Ready => (),
         }
 
@@ -53,6 +50,8 @@ impl From<bytes::Bytes> for Message {
 }
 
 /// The application's mailbox that handles incoming messages.
+/// 
+/// TODO: remove if there are no other actors? I think this is only used for communication between different actors
 pub struct Mailbox {
     sender: mpsc::Sender<Message>,
 }

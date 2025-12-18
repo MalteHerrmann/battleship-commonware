@@ -5,7 +5,7 @@ use std::{
 };
 
 use battleship_commonware::{
-    Config, application::actor::GameStateActor, config::config::parse_public_key, get_config_path,
+    Config, application::actor::GameStateActor, config::parse_public_key, get_config_path,
 };
 
 use clap::arg;

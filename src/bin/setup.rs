@@ -1,6 +1,6 @@
 /// This binary prepares the testing setup for two parties that can be
 /// playing the battleship game.
-use battleship_commonware::config::config::{get_config_path, parse_private_key};
+use battleship_commonware::config::{get_config_path, parse_private_key};
 
 use clap::{Command, arg};
 use commonware_cryptography::Signer;

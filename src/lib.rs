@@ -46,34 +46,35 @@
 ///
 /// ## Implementation Steps
 ///
-/// - [x]  Start a simple setup where commonware-p2p communicates between two nodes (two keys).
-///        They should send simple messages with an increasing counter variable
-///        for starters.
+/// - Start a simple setup where commonware-p2p communicates between two nodes (two keys).
+///   They should send simple messages with an increasing counter variable
+///   for starters.
 ///
-///    - [x] This can use hardcoded information first.
+///   - This can use hardcoded information first.
 ///
-///    - [x] Next, it should be extended to take input arguments
-///          to define the key of the running instance.
-///          Real projects mostly use clap for this so that can be added here, too.
-///          The keys themselves could be added to e.g. a local config file and then parsed.
+///   - Next, it should be extended to take input arguments
+///     to define the key of the running instance.
+///     Real projects mostly use clap for this so that can be added here, too.
+///     The keys themselves could be added to e.g. a local config file and then parsed.
 ///
-///    - [ ] Ultimately, there should be some connection request logic implemented,
-///          where a new peer is only accepted in case there is not an established peer
-///          connection already, and the peer is in a list of whitelisted addresses.
+/// -  Ultimately, there should be some connection request logic implemented,
+///    where a new peer is only accepted in case there is not an established peer
+///    connection already, and the peer is in a list of whitelisted addresses.
 ///
-/// - [ ] This can be extended to incorporate moves for the battleship game.
-///       As a first iteration, just shoot at increasing fields A1, B1, ... .
+/// - This can be extended to incorporate moves for the battleship game.
+///   As a first iteration, just shoot at increasing fields A1, B1, ... .
 ///
-/// - [ ] Finally, e.g. using hashing operations, the players could play
-///       against each other automatically and one could watch in the terminal.
+/// - Finally, e.g. using hashing operations, the players could play
+///   against each other automatically and one could watch in the terminal.
 ///
-/// - [ ] There should be simulations added which make use of the deterministic runtime while
-///       the main application runs on the tokio runtime of the Commonware framework.
+/// - There should be simulations added which make use of the deterministic runtime while
+///   the main application runs on the tokio runtime of the Commonware framework.
 ///
-/// - [ ] Eventually, it could be cool to store the game state using `commonware-storage` to understand
-///       that crate better as well.
+/// - Eventually, it could be cool to store the game state using `commonware-storage` to understand
+///   that crate better as well.
 ///
 pub mod application;
 pub mod config;
+pub mod game;
 
-pub use config::config::{Config, get_config_path};
+pub use config::{Config, get_config_path};
