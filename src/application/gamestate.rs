@@ -7,7 +7,7 @@ pub struct Move {
     /// The move number in the game.
     number: u16,
     /// The public key of the player.
-    /// 
+    ///
     /// TODO: this really doesn't matter and is not used anywhere.. remove?
     player: String,
     /// The x-coordinate that is attacked.

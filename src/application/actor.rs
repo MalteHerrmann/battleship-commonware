@@ -1,6 +1,5 @@
 /// The application's actor controls the message flow
 /// between the two participating nodes.
-
 use crate::game::{self, GRID_SIZE};
 
 use super::{
@@ -49,7 +48,7 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
 
     /// The list of the opponent's moves.
     /// TODO: change to hashmap
-    /// 
+    ///
     /// TODO: should this be moved to the `Grid` implementation or the `Player`?
     opponent_moves: Vec<Move>,
 
@@ -148,9 +147,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             y = fastrand::u8(0..=GRID_SIZE);
             debug!("generated new attack point: ({},{})", x, y);
 
-            unused = !self.moves
-                .iter()
-                .any(|m| m.get_x() == x && m.get_y() == y)
+            unused = !self.moves.iter().any(|m| m.get_x() == x && m.get_y() == y)
         }
 
         let current_move = Move::new(self.next_move(), self.crypto.public_key().to_string(), x, y);
@@ -189,11 +186,15 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                         "invalid move number: {}; expected: {}",
                         m.get_number(),
                         self.moves.len() + self.opponent_moves.len() + 1
-                    ))
+                    ));
                 }
 
                 // Check if the move was already played.
-                if self.opponent_moves.iter().any(|previous| m.get_x() == previous.get_x() && m.get_y() == previous.get_y()) {
+                if self
+                    .opponent_moves
+                    .iter()
+                    .any(|previous| m.get_x() == previous.get_x() && m.get_y() == previous.get_y())
+                {
                     return Err(eyre::eyre!("move already played"));
                 }
 
@@ -205,14 +206,15 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 let _ = match is_hit {
                     true => {
                         info!("ship was hit");
-                        self.send(sender.clone(), Message::Hit { m: m.clone() }).await?;
+                        self.send(sender.clone(), Message::Hit { m: m.clone() })
+                            .await?;
                         if self.game.lost() {
                             self.send(sender, Message::EndGame).await?;
                             panic!("lost the game!")
                         }
 
                         Ok(())
-                    },
+                    }
                     false => self.send(sender, Message::Miss { m }).await,
                 };
 
@@ -234,9 +236,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         match msg {
             Message::Attack { m: _ } => {
                 if !self.game_ready() {
-                    return Err(eyre::eyre!(
-                        "game not ready yet; can't process attack"
-                    ));
+                    return Err(eyre::eyre!("game not ready yet; can't process attack"));
                 }
 
                 info!("handling attack: {:?}", msg);

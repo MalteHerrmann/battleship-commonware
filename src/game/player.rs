@@ -56,12 +56,11 @@ impl Player {
     }
 
     /// Checks if the player has lost the game.
-    /// 
+    ///
     /// This is the case if all coordinates of all placed ships have
     /// been hit.
     pub fn lost(&self) -> bool {
-        self
-            .grid
+        self.grid
             .ships
             .iter()
             .all(|ship| ship.coords.iter().all(|c| c.is_hit))

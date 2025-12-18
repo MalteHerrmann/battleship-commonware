@@ -50,7 +50,7 @@ impl From<bytes::Bytes> for Message {
 }
 
 /// The application's mailbox that handles incoming messages.
-/// 
+///
 /// TODO: remove if there are no other actors? I think this is only used for communication between different actors
 pub struct Mailbox {
     sender: mpsc::Sender<Message>,
