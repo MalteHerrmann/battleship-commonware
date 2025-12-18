@@ -1,5 +1,7 @@
 /// The application's actor controls the message flow
 /// between the two participating nodes.
+use crate::game::{self, GRID_SIZE};
+
 use super::{
     gamestate::Move,
     ingress::{Mailbox, Message},
@@ -13,11 +15,16 @@ use eyre::Context;
 use futures::channel::mpsc;
 use rand::{CryptoRng, Rng};
 use tokio::time::{Duration, sleep};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 // TODO: use bigger mailbox size here?
 const MAILBOX_SIZE: usize = 1;
 
+/// The main actor that drives the communication between the participants,
+/// while maintaining track of the game state internally.
+///
+/// TODO: I guess the [crate::game::Game] could be made into its own actor
+/// as well and then receive driving updates through the channels.
 pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     context: ContextCell<R>,
     crypto: C,
@@ -26,14 +33,27 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     // TODO: what should mailbox be used for again? currently not in use.. is this only for messages to the actor from other actors in a more complex setup?
     mailbox: mpsc::Receiver<Message>,
 
-    /// Signals if the game is ready to start.
-    game_ready: bool,
+    /// Signals if the player is ready to start.
+    is_ready: bool,
+
+    /// Signals if the opponent is ready to start.
+    opponent_ready: bool,
 
     /// Signals if it's the actor's turn (or the opponent's turn if false).
     my_turn: bool,
 
     /// The list of the exchanged moves.
+    /// TODO: change to hashmap
     moves: Vec<Move>,
+
+    /// The list of the opponent's moves.
+    /// TODO: change to hashmap
+    ///
+    /// TODO: should this be moved to the `Grid` implementation or the `Player`?
+    opponent_moves: Vec<Move>,
+
+    /// The game state (local to the actor).
+    game: game::Player,
 }
 
 impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
@@ -48,9 +68,15 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 mailbox,
 
                 // Game logic
-                game_ready: false,
                 my_turn: false,
+
+                is_ready: false,
                 moves: Vec::new(),
+
+                opponent_ready: false,
+                opponent_moves: Vec::new(),
+
+                game: game::Player::new(),
             },
             Mailbox::new(sender),
         )
@@ -88,7 +114,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     }
                 },
                 _ = sleep(Duration::from_secs(10)) => {
-                    if !self.game_ready {
+                    if !self.game_ready() {
                         info!("game not ready yet; sending ready message to other player");
 
                         self
@@ -97,6 +123,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                             .expect("failed to send ready message");
 
                         self.my_turn = true; // we're having the first sender of the ready message have the first turn.
+                        self.is_ready = true;
 
                     } else if self.my_turn {
                         let _ = &self.attack(sender.clone()).await.expect("failed to attack");
@@ -108,10 +135,20 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     /// Sends a computed move for the game via the p2p layer.
+    ///
+    /// TODO: should this take in the sender and receiver? Or rather use the mailbox of the actor here?
     async fn attack(&mut self, sender: impl Sender<PublicKey = C::PublicKey>) -> eyre::Result<()> {
-        // TODO: compute the moves e.g. based on the hash of the game state or something.
-        let x = 0;
-        let y = 0;
+        let mut unused = false;
+        let mut x: u8 = 0;
+        let mut y: u8 = 0;
+
+        while !unused {
+            x = fastrand::u8(0..=GRID_SIZE);
+            y = fastrand::u8(0..=GRID_SIZE);
+            debug!("generated new attack point: ({},{})", x, y);
+
+            unused = !self.moves.iter().any(|m| m.get_x() == x && m.get_y() == y)
+        }
 
         let current_move = Move::new(self.next_move(), self.crypto.public_key().to_string(), x, y);
 
@@ -119,7 +156,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             m: current_move.clone(),
         };
 
-        info!("sending sink message: {:?}", msg);
+        info!("sending attack message: {:?}", msg);
         self.send(sender, msg).await?;
 
         self.moves.push(current_move);
@@ -128,25 +165,61 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         Ok(())
     }
 
+    /// Checks if the game is ready to be played.
+    fn game_ready(&self) -> bool {
+        self.is_ready && self.opponent_ready
+    }
+
     /// Updates the internal game state when receiving an incoming message.
-    fn handle_attack(&mut self, message: Message) -> eyre::Result<()> {
+    async fn handle_attack(
+        &mut self,
+        message: Message,
+        sender: impl Sender<PublicKey = C::PublicKey>,
+    ) -> eyre::Result<()> {
         message.validate()?;
 
         match message {
             Message::Attack { m } => {
                 // we're only allowing monotonically increasing numbers, incremented by 1, here
-                if m.get_number() as usize != self.moves.len() + 1 {
-                    Err(eyre::eyre!(
+                if m.get_number() as usize != self.moves.len() + self.opponent_moves.len() + 1 {
+                    return Err(eyre::eyre!(
                         "invalid move number: {}; expected: {}",
                         m.get_number(),
-                        self.moves.len() + 1
-                    ))
-                } else {
-                    self.moves.push(m);
-                    self.my_turn = true;
-
-                    Ok(())
+                        self.moves.len() + self.opponent_moves.len() + 1
+                    ));
                 }
+
+                // Check if the move was already played.
+                if self
+                    .opponent_moves
+                    .iter()
+                    .any(|previous| m.get_x() == previous.get_x() && m.get_y() == previous.get_y())
+                {
+                    return Err(eyre::eyre!("move already played"));
+                }
+
+                self.opponent_moves.push(m.clone());
+                let is_hit = self.game.handle_attack(m.get_x(), m.get_y());
+                self.my_turn = true;
+
+                // we're sending the message back with the information if the attack was a hit or miss.
+                let _ = match is_hit {
+                    true => {
+                        info!("ship was hit");
+                        self.send(sender.clone(), Message::Hit { m: m.clone() })
+                            .await?;
+                        if self.game.lost() {
+                            self.send(sender, Message::EndGame).await?;
+                            panic!("lost the game!")
+                        }
+
+                        Ok(())
+                    }
+                    false => self.send(sender, Message::Miss { m }).await,
+                };
+
+                self.game.print_attacks()?;
+                self.game.print_grid()
             }
             _ => Err(eyre::eyre!("wrong message type")),
         }
@@ -162,22 +235,19 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     ) -> eyre::Result<()> {
         match msg {
             Message::Attack { m: _ } => {
-                if !self.game_ready {
-                    return Err(eyre::eyre!(
-                        "opponent not marked as ready yet; can't process attack"
-                    ));
+                if !self.game_ready() {
+                    return Err(eyre::eyre!("game not ready yet; can't process attack"));
                 }
 
                 info!("handling attack: {:?}", msg);
-                self.handle_attack(msg).expect("failed to handle attack");
+                self.handle_attack(msg, sender).await?;
             }
+            Message::EndGame => panic!("you won the game!"),
+            Message::Hit { m } => self.update_opponent_grid(m, true)?,
+            Message::Miss { m } => self.update_opponent_grid(m, false)?,
             Message::Ready => {
                 info!("received ready message");
-
-                assert!(
-                    !self.game_ready,
-                    "game should not be ready when receiving ready message from other player!"
-                );
+                assert!(!self.game_ready(), "game is already marked as ready");
 
                 // We're sending a Ready message back so that the opponent is also informed of our readiness.
                 // In case, `self.my_turn` is already true, this means that the received `Ready` message is the
@@ -191,22 +261,17 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                         .expect("failed to send ready message");
                 }
 
-                self.game_ready = true;
+                self.opponent_ready = true;
+                self.is_ready = true;
             }
-            Message::EndGame { winner: _ } => unimplemented!("end game logic not yet implemented"),
-            _ => unimplemented!("other message types received"),
         }
 
         Ok(())
     }
 
     /// Incrememnts the latest seen move number to yield the next number to play.
-    fn next_move(&self) -> u8 {
-        if self.moves.is_empty() {
-            return 1;
-        }
-
-        self.moves[self.moves.len() - 1].get_number() + 1
+    fn next_move(&self) -> u16 {
+        (self.moves.len() + self.opponent_moves.len() + 1) as u16
     }
 
     /// Sends a given message to all recipients.
@@ -215,10 +280,22 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         mut sender: impl Sender<PublicKey = C::PublicKey>,
         message: Message,
     ) -> eyre::Result<()> {
+        debug!("sending message to peers: {:?}", message);
+
         if let Err(e) = sender.send(Recipients::All, message.into(), false).await {
             Err(e).wrap_err("failed to send message")
         } else {
             Ok(())
         }
+    }
+
+    /// Update the opponent's grid with a new attack.
+    fn update_opponent_grid(&mut self, mv: Move, is_hit: bool) -> eyre::Result<()> {
+        if mv.validate().is_err() {
+            return Err(eyre::eyre!("invalid move: {:?}", mv));
+        }
+
+        debug!("updating opponent grid");
+        self.game.attack(mv.get_x(), mv.get_y(), is_hit)
     }
 }

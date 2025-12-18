@@ -215,6 +215,7 @@ dependencies = [
  "commonware-runtime",
  "commonware-utils",
  "eyre",
+ "fastrand",
  "futures",
  "governor",
  "rand",
