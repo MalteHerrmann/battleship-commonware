@@ -95,6 +95,4 @@ fn main() {
 
         network.start().await.expect("Network failed");
     });
-
-    info!("done.");
 }

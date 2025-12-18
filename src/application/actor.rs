@@ -34,8 +34,11 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     // TODO: what should mailbox be used for again? currently not in use.. is this only for messages to the actor from other actors in a more complex setup?
     mailbox: mpsc::Receiver<Message>,
 
-    /// Signals if the game is ready to start.
-    game_ready: bool,
+    /// Signals if the player is ready to start.
+    is_ready: bool,
+
+    /// Signals if the opponent is ready to start.
+    opponent_ready: bool,
 
     /// Signals if it's the actor's turn (or the opponent's turn if false).
     my_turn: bool,
@@ -66,10 +69,14 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 mailbox,
 
                 // Game logic
-                game_ready: false,
                 my_turn: false,
+
+                is_ready: false,
                 moves: Vec::new(),
+
+                opponent_ready: false,
                 opponent_moves: Vec::new(),
+
                 game: game::Player::new(),
             },
             Mailbox::new(sender),
@@ -108,7 +115,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     }
                 },
                 _ = sleep(Duration::from_secs(10)) => {
-                    if !self.game_ready {
+                    if !self.game_ready() {
                         info!("game not ready yet; sending ready message to other player");
 
                         self
@@ -117,6 +124,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                             .expect("failed to send ready message");
 
                         self.my_turn = true; // we're having the first sender of the ready message have the first turn.
+                        self.is_ready = true;
 
                     } else if self.my_turn {
                         let _ = &self.attack(sender.clone()).await.expect("failed to attack");
@@ -136,9 +144,9 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         let mut y: u8 = 0;
 
         while !unused {
-            debug!("generating new attack point");
             x = fastrand::u8(0..=GRID_SIZE);
             y = fastrand::u8(0..=GRID_SIZE);
+            debug!("generated new attack point: ({},{})", x, y);
 
             unused = !self.moves
                 .iter()
@@ -158,6 +166,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         self.my_turn = false;
 
         Ok(())
+    }
+
+    /// Checks if the game is ready to be played.
+    fn game_ready(&self) -> bool {
+        self.is_ready && self.opponent_ready
     }
 
     /// Updates the internal game state when receiving an incoming message.
@@ -217,9 +230,9 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     ) -> eyre::Result<()> {
         match msg {
             Message::Attack { m: _ } => {
-                if !self.game_ready {
+                if !self.game_ready() {
                     return Err(eyre::eyre!(
-                        "opponent not marked as ready yet; can't process attack"
+                        "game not ready yet; can't process attack"
                     ));
                 }
 
@@ -231,12 +244,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             Message::Miss { m } => self.update_opponent_grid(m, false)?,
             Message::Ready => {
                 info!("received ready message");
-
-                // If the game is ready already, then there's nothing for us to do and
-                // we can return early here.
-                if self.game_ready {
-                    return Ok(());
-                }
+                assert!(!self.game_ready(), "game is already marked as ready");
 
                 // We're sending a Ready message back so that the opponent is also informed of our readiness.
                 // In case, `self.my_turn` is already true, this means that the received `Ready` message is the
@@ -250,7 +258,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                         .expect("failed to send ready message");
                 }
 
-                self.game_ready = true;
+                self.opponent_ready = true;
+                self.is_ready = true;
             }
         }
 
