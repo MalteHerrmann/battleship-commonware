@@ -76,5 +76,6 @@
 pub mod application;
 pub mod config;
 pub mod game;
+pub mod gui;
 
 pub use config::{Config, get_config_path};

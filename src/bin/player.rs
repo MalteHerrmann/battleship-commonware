@@ -5,7 +5,11 @@ use std::{
 };
 
 use battleship_commonware::{
-    Config, application::actor::GameStateActor, config::parse_public_key, get_config_path,
+    application::actor::GameStateActor,
+    Config,
+    config::parse_public_key,
+    get_config_path,
+    gui::GuiActor,
 };
 
 use clap::arg;
@@ -18,8 +22,8 @@ use tracing::info;
 const MAX_MESSAGE_SIZE: u16 = 1024;
 
 fn main() {
-    // Initialize the tracing subscriber to print to stdout.
-    tracing_subscriber::fmt::init();
+    // // Initialize the tracing subscriber to print to stdout.
+    // tracing_subscriber::fmt::init();
 
     let command = clap::Command::new("battleship-commonware-player")
         .args([arg!(--"public-key" <PUBKEY> "the player's public key")]);
@@ -89,9 +93,11 @@ fn main() {
         //
         // TODO: where to use the `gamestate_mailbox`? Shouldn't that be used to be passed into the start method maybe?
         // do we even need the mailbox? Isn't that only for the case where the game state actor communicates with another actor?
-        let (gamestate_actor, _gamestate_mailbox) = GameStateActor::new(context, signer.clone());
+        let (gui_actor, gui_mailbox) = GuiActor::new(context.with_label("gui")); // TODO: is it fine to clone the context?
+        let (gamestate_actor, _) = GameStateActor::new(context.with_label("game state"), gui_mailbox, signer.clone());
 
         gamestate_actor.start(gamestate_sender, gamestate_receiver);
+        gui_actor.start();
 
         network.start().await.expect("Network failed");
     });

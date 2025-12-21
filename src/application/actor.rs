@@ -1,6 +1,7 @@
 /// The application's actor controls the message flow
 /// between the two participating nodes.
 use crate::game::{self, GRID_SIZE};
+use crate::gui::{Mailbox as GuiMailbox, Message as GuiMessage};
 
 use super::{
     gamestate::Move,
@@ -12,6 +13,7 @@ use commonware_macros::select;
 use commonware_p2p::{Receiver, Recipients, Sender};
 use commonware_runtime::{ContextCell, Spawner, spawn_cell};
 use eyre::Context;
+use futures::SinkExt;
 use futures::channel::mpsc;
 use rand::{CryptoRng, Rng};
 use tokio::time::{Duration, sleep};
@@ -32,6 +34,8 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     namespace: Vec<u8>,
     // TODO: what should mailbox be used for again? currently not in use.. is this only for messages to the actor from other actors in a more complex setup?
     mailbox: mpsc::Receiver<Message>,
+
+    gui_mailbox: GuiMailbox,
 
     /// Signals if the player is ready to start.
     is_ready: bool,
@@ -58,7 +62,7 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
 
 impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// Create new application actor.
-    pub fn new(context: R, crypto: C) -> (Self, Mailbox) {
+    pub fn new(context: R, gui_mailbox: GuiMailbox, crypto: C) -> (Self, Mailbox) {
         let (sender, mailbox) = mpsc::channel(MAILBOX_SIZE);
         (
             Self {
@@ -66,6 +70,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 crypto,
                 namespace: Vec::from("GAMESTATE_NAMESPACE"),
                 mailbox,
+
+                gui_mailbox,
 
                 // Game logic
                 my_turn: false,
@@ -165,6 +171,17 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         Ok(())
     }
 
+    async fn draw_grid(&mut self) -> eyre::Result<()> {
+        let full_grid = [
+            self.game.opponent_grid.as_string(false)?,
+            self.game.grid.as_string(true)?,
+        ].join("\n");
+
+        self.gui_mailbox.sender.send(GuiMessage::Draw { grid: full_grid }).await?;
+
+        Ok(())
+    }
+
     /// Checks if the game is ready to be played.
     fn game_ready(&self) -> bool {
         self.is_ready && self.opponent_ready
@@ -201,6 +218,10 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 self.opponent_moves.push(m.clone());
                 let is_hit = self.game.handle_attack(m.get_x(), m.get_y());
                 self.my_turn = true;
+
+                // Upon handling an attack we're sending the instruction
+                // for the GUI actor to draw the grids.
+                self.draw_grid().await?;
 
                 // we're sending the message back with the information if the attack was a hit or miss.
                 let _ = match is_hit {
