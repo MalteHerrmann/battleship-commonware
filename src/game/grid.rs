@@ -18,7 +18,7 @@ const MISSED_POINT: &str = "✕";
 /// The character to display a default coordinate.
 const DEFAULT_POINT: &str = "•";
 /// Defines the grid size for the game.
-pub const GRID_SIZE: u8 = 10;
+pub const GRID_SIZE: u8 = 5;
 
 /// Representation of coordinates on a 2-dimensional plane.
 #[derive(Clone, Copy, Default)]

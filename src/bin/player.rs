@@ -17,13 +17,11 @@ use commonware_p2p::{Manager, authenticated::discovery};
 use commonware_runtime::{Metrics, Runner, tokio};
 use commonware_utils::NZU32;
 use governor::Quota;
-use tracing::info;
 
 const MAX_MESSAGE_SIZE: u16 = 1024;
 
 fn main() {
-    // // Initialize the tracing subscriber to print to stdout.
-    // tracing_subscriber::fmt::init();
+    // TODO: initialize log here
 
     let command = clap::Command::new("battleship-commonware-player")
         .args([arg!(--"public-key" <PUBKEY> "the player's public key")]);
@@ -52,7 +50,6 @@ fn main() {
     //
     // TODO: does this have to be adjusted to check which key is running the binary?
     // we'll have to support running two instances via CLI flags.
-    info!("setting up p2p config");
     let p2p_config = discovery::Config::local(
         signer.clone(),
         b"BATTLESHIP_NAMESPACE",

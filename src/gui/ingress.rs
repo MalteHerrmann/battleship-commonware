@@ -13,5 +13,5 @@ impl Mailbox {
 
 pub enum Message {
     Draw { grid: String },
-    Log { logs: Vec<String>}
+    Log { content: String}
 }

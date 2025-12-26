@@ -44,22 +44,30 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend).expect("failed to create terminal gui");
 
+        // Before receiving any messages we will draw an empty frame.
         terminal.draw(|frame| self.draw_empty(frame)).expect("failed to draw");
+
+        let mut grid_string: String = "".into();
+        let mut logs: Vec<String> = vec![];
 
         while let Some(message) = self.mailbox.next().await {
             terminal.draw(|frame| {
-                let [top, bottom] = create_layout(frame);
+                let [left, right] = create_layout(frame);
 
                 match message {
-                    Message::Draw { grid } => {
-                        let grid = self.draw_grid(&grid);
-                        frame.render_widget(grid, top);
+                    Message::Draw { grid: g } => {
+                        grid_string = g.to_owned();
                     },
-                    Message::Log { logs } => {
-                        let list = self.put_logs(logs);
-                        frame.render_widget(list, bottom);
+                    Message::Log { content } => {
+                        logs.push(content);
                     }
                 };
+
+                let grid = self.draw_grid(&grid_string);
+                frame.render_widget(grid, left);
+
+                let list = self.put_logs(&logs);
+                frame.render_widget(list, right);
             }).expect("failed to draw");
         } 
 
@@ -72,13 +80,14 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
     }
 
     pub fn draw_empty(&self, frame: &mut Frame) {
-        let [top, bottom] = create_layout(frame);
+        let [left, right] = create_layout(frame);
 
         let empty_grid = self.draw_grid("");
-        frame.render_widget(empty_grid, top);
+        frame.render_widget(empty_grid, left);
 
-        let empty_logs = self.put_logs(vec![]);
-        frame.render_widget(empty_logs, bottom);
+        let empty = Vec::new();
+        let empty_logs = self.put_logs(&empty);
+        frame.render_widget(empty_logs, right);
     }
 
     pub fn draw_grid<'a>(&self, grid: &'a str) -> Paragraph<'a> {
@@ -89,7 +98,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
         Paragraph::new(grid).block(block)
     }
 
-    pub fn put_logs<'a>(&self, logs: Vec<String>) -> List<'a> {
+    pub fn put_logs<'a>(&self, logs: &'a [String]) -> List<'a> {
         let block = Block::default()
             .title("Logs")
             .borders(Borders::ALL);
@@ -101,7 +110,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
 
 fn create_layout(frame: &mut Frame) -> [Rect;2] {
     Layout::default()
-        .direction(ratatui::layout::Direction::Vertical)
-        .constraints([Constraint::Ratio(3, 4), Constraint::Ratio(1, 4)])
+        .direction(ratatui::layout::Direction::Horizontal)
+        .constraints([Constraint::Ratio(1, 2), Constraint::Ratio(1, 2)])
         .areas::<2>(frame.area())
 }

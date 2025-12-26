@@ -17,7 +17,6 @@ use futures::SinkExt;
 use futures::channel::mpsc;
 use rand::{CryptoRng, Rng};
 use tokio::time::{Duration, sleep};
-use tracing::{debug, error, info};
 
 // TODO: use bigger mailbox size here?
 const MAILBOX_SIZE: usize = 1;
@@ -116,12 +115,16 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                             ).await
                             .expect("failed to handle message");
                         },
-                        Err(_) => error!("failed to receive message"),
+                        Err(_) => self.log("failed to receive message")
+                            .await
+                            .expect("failed to log"),
                     }
                 },
-                _ = sleep(Duration::from_secs(10)) => {
+                _ = sleep(Duration::from_secs(4)) => {
                     if !self.game_ready() {
-                        info!("game not ready yet; sending ready message to other player");
+                        self.log("game not ready yet; sending ready message to other player")
+                            .await
+                            .expect("failed to log");
 
                         self
                             .send(sender.clone(), Message::Ready)
@@ -151,7 +154,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         while !unused {
             x = fastrand::u8(0..=GRID_SIZE);
             y = fastrand::u8(0..=GRID_SIZE);
-            debug!("generated new attack point: ({},{})", x, y);
+            self.log(&format!("generated new attack point: ({},{})", x, y)).await?;
 
             unused = !self.moves.iter().any(|m| m.get_x() == x && m.get_y() == y)
         }
@@ -162,7 +165,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             m: current_move.clone(),
         };
 
-        info!("sending attack message: {:?}", msg);
+        self.log(&format!("sending attack message: {:?}", msg)).await?;
         self.send(sender, msg).await?;
 
         self.moves.push(current_move);
@@ -226,7 +229,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // we're sending the message back with the information if the attack was a hit or miss.
                 let _ = match is_hit {
                     true => {
-                        info!("ship was hit");
+                        self.log(&format!("ship was hit: {}-{}", m.get_x(), m.get_y())).await?;
                         self.send(sender.clone(), Message::Hit { m: m.clone() })
                             .await?;
                         if self.game.lost() {
@@ -239,8 +242,9 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     false => self.send(sender, Message::Miss { m }).await,
                 };
 
-                self.game.print_attacks()?;
-                self.game.print_grid()
+                Ok(())
+                // self.game.print_attacks()?;
+                // self.game.print_grid()
             }
             _ => Err(eyre::eyre!("wrong message type")),
         }
@@ -260,14 +264,14 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     return Err(eyre::eyre!("game not ready yet; can't process attack"));
                 }
 
-                info!("handling attack: {:?}", msg);
+                self.log(&format!("handling attack: {:?}", msg)).await?;
                 self.handle_attack(msg, sender).await?;
             }
             Message::EndGame => panic!("you won the game!"),
-            Message::Hit { m } => self.update_opponent_grid(m, true)?,
-            Message::Miss { m } => self.update_opponent_grid(m, false)?,
+            Message::Hit { m } => self.update_opponent_grid(m, true).await?,
+            Message::Miss { m } => self.update_opponent_grid(m, false).await?,
             Message::Ready => {
-                info!("received ready message");
+                self.log("received ready message").await?;
                 assert!(!self.game_ready(), "game is already marked as ready");
 
                 // We're sending a Ready message back so that the opponent is also informed of our readiness.
@@ -276,7 +280,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // signal readiness via P2P.
 
                 if !self.my_turn {
-                    info!("sending ready message back");
+                    self.log("sending ready message back").await?;
                     self.send(sender.clone(), Message::Ready)
                         .await
                         .expect("failed to send ready message");
@@ -290,6 +294,14 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         Ok(())
     }
 
+    async fn log(&mut self, content: &str) -> eyre::Result<()> {
+        self.gui_mailbox.sender.send(
+            GuiMessage::Log { content: content.into() }
+        )
+        .await
+        .map_err(|e| e.into())
+    }
+
     /// Incrememnts the latest seen move number to yield the next number to play.
     fn next_move(&self) -> u16 {
         (self.moves.len() + self.opponent_moves.len() + 1) as u16
@@ -301,7 +313,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         mut sender: impl Sender<PublicKey = C::PublicKey>,
         message: Message,
     ) -> eyre::Result<()> {
-        debug!("sending message to peers: {:?}", message);
+        self.log(&format!("sending message to peers: {:?}", message)).await?;
 
         if let Err(e) = sender.send(Recipients::All, message.into(), false).await {
             Err(e).wrap_err("failed to send message")
@@ -311,12 +323,12 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     /// Update the opponent's grid with a new attack.
-    fn update_opponent_grid(&mut self, mv: Move, is_hit: bool) -> eyre::Result<()> {
+    async fn update_opponent_grid(&mut self, mv: Move, is_hit: bool) -> eyre::Result<()> {
         if mv.validate().is_err() {
             return Err(eyre::eyre!("invalid move: {:?}", mv));
         }
 
-        debug!("updating opponent grid");
+        self.log("updating opponent grid").await?;
         self.game.attack(mv.get_x(), mv.get_y(), is_hit)
     }
 }
