@@ -36,9 +36,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
     async fn run(
         mut self,
     ) {
-        // TODO: should raw mode be used?
-        //
-        // enable_raw_mode().expect("failed to set raw mode");
+        enable_raw_mode().expect("failed to set raw mode");
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen).expect("failed to execute gui macro");
         let backend = CrosstermBackend::new(stdout);
@@ -71,7 +69,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
             }).expect("failed to draw");
         } 
 
-        // disable_raw_mode().expect("failed to disable raw mode");
+        disable_raw_mode().expect("failed to disable raw mode");
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen
