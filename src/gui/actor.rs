@@ -5,7 +5,7 @@ use futures::{StreamExt, channel::mpsc::{self, Receiver}};
 use rand::Rng;
 use ratatui::{Frame, Terminal, backend::CrosstermBackend, crossterm::{execute, terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode}}, layout::{Constraint, Layout, Rect}, widgets::{Block, Borders, List, ListItem, Paragraph}};
 
-use super::ingress::{Mailbox, Message};
+use super::ingress::{Log, LogType, Mailbox, Message};
 
 pub struct GuiActor<R: Rng + Spawner + Metrics> {
     context: ContextCell<R>,
@@ -36,7 +36,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
     async fn run(
         mut self,
     ) {
-        enable_raw_mode().expect("failed to set raw mode");
+        // enable_raw_mode().expect("failed to set raw mode");
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen).expect("failed to execute gui macro");
         let backend = CrosstermBackend::new(stdout);
@@ -46,7 +46,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
         terminal.draw(|frame| self.draw_empty(frame)).expect("failed to draw");
 
         let mut grid_string: String = "".into();
-        let mut logs: Vec<String> = vec![];
+        let mut logs: Vec<Log> = vec![];
 
         while let Some(message) = self.mailbox.next().await {
             terminal.draw(|frame| {
@@ -56,8 +56,8 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
                     Message::Draw { grid: g } => {
                         grid_string = g.to_owned();
                     },
-                    Message::Log { content } => {
-                        logs.push(content);
+                    Message::Log { log } => {
+                        logs.push(log);
                     }
                 };
 
@@ -69,7 +69,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
             }).expect("failed to draw");
         } 
 
-        disable_raw_mode().expect("failed to disable raw mode");
+        // disable_raw_mode().expect("failed to disable raw mode");
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen
@@ -96,7 +96,7 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
         Paragraph::new(grid).block(block)
     }
 
-    pub fn put_logs<'a>(&self, logs: &'a [String]) -> List<'a> {
+    pub fn put_logs<'a>(&self, logs: &'a [Log]) -> List<'a> {
         let block = Block::default()
             .title("Logs")
             .borders(Borders::ALL);
