@@ -8,6 +8,8 @@ use super::{
     ingress::{Mailbox, Message},
 };
 
+use tokio::io::{AsyncReadExt, stdin};
+
 use commonware_cryptography::Signer;
 use commonware_macros::select;
 use commonware_p2p::{Receiver, Recipients, Sender};
@@ -149,15 +151,16 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// TODO: should this take in the sender and receiver? Or rather use the mailbox of the actor here?
     async fn attack(&mut self, sender: impl Sender<PublicKey = C::PublicKey>) -> eyre::Result<()> {
         let mut unused = false;
-        let mut x: u8 = 0;
-        let mut y: u8 = 0;
+        // NOTE: the existing battleship-rs logic uses indices from 1..=grid_size.
+        let mut x: u8 = 1;
+        let mut y: u8 = 1;
 
         // TODO: instead of generating this in a loop we can have a vector of all
         // possible moves and then only calculate one random to take from the slice.
         // On every move the used move is removed from the slice.
         while !unused {
-            x = fastrand::u8(0..=GRID_SIZE);
-            y = fastrand::u8(0..=GRID_SIZE);
+            x = fastrand::u8(1..=GRID_SIZE);
+            y = fastrand::u8(1..=GRID_SIZE);
             self.log(LogType::Debug, &format!("generated new attack point: ({},{})", x, y)).await?;
 
             unused = !self.moves.iter().any(|m| m.get_x() == x && m.get_y() == y)
@@ -233,17 +236,20 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // we're sending the message back with the information if the attack was a hit or miss.
                 match is_hit {
                     true => {
-                        self.log(LogType::OpponentHit, &format!("opponent attack hit: {}-{}", m.get_x(), m.get_y())).await?;
+                        self.log(LogType::OpponentHit, &format!("💥 {}-{}: opponent attack hit", m.get_x(), m.get_y())).await?;
                         self.send(sender.clone(), Message::Hit { m: m.clone() })
                             .await?;
                         if self.game.lost() {
                             self.send(sender, Message::EndGame).await?;
-                            // TODO: wait for user input to end the game and return fully from the game.
-                            panic!("lost the game!")
+
+                            self.log(LogType::Lost, "💔💔💔 you lost the game; press any key to exit the game 💔💔💔").await?;
+                            let mut input = vec![];
+                            stdin().read(&mut input).await?;
+                            std::process::exit(0);
                         }
                     }
                     false => {
-                        self.log(LogType::OpponentMiss, &format!("opponent attack missed: {}-{}", m.get_x(), m.get_y())).await?;
+                        self.log(LogType::OpponentMiss, &format!("💦 {}-{}: opponent attack missed", m.get_x(), m.get_y())).await?;
                         self.send(sender, Message::Miss { m }).await?
                     },
                 };
@@ -271,7 +277,12 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 self.log(LogType::Debug, &format!("handling attack: {:?}", msg)).await?;
                 self.handle_attack(msg, sender).await?;
             }
-            Message::EndGame => panic!("you won the game!"),
+            Message::EndGame => {
+                self.log(LogType::Lost, "👑👑👑 you won the game; press any key to exit the game 👑👑👑").await?;
+                let mut input = vec![];
+                stdin().read(&mut input).await?;
+                std::process::exit(0);
+            },
             Message::Hit { m } => self.update_opponent_grid(m, true).await?,
             Message::Miss { m } => self.update_opponent_grid(m, false).await?,
             Message::Ready => {
@@ -339,8 +350,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
 
         self.game.attack(mv.get_x(), mv.get_y(), is_hit)?;
         match is_hit {
-            true => self.log(LogType::Hit, &format!("attack hit: {}-{}", mv.get_x(), mv.get_y())).await,
-            false => self.log(LogType::Miss, &format!("attack missed: {}-{}", mv.get_x(), mv.get_y())).await
+            true => self.log(LogType::Hit, &format!("☄️ {}-{}: attack hit", mv.get_x(), mv.get_y())).await,
+            false => self.log(LogType::Miss, &format!("💦 {}-{}: attack missed", mv.get_x(), mv.get_y())).await
         }
         
     }

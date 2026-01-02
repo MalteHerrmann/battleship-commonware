@@ -38,10 +38,12 @@ impl<'a> Into<Text<'a>> for Log {
             LogType::Debug => Style::new().fg(Color::DarkGray),
             LogType::Hit => Style::new().fg(Color::Green),
             LogType::Miss => Style::new().fg(Color::Red),
+            LogType::Lost => Style::new().fg(Color::Yellow),
             LogType::OpponentHit => Style::new().fg(Color::Red),
             LogType::OpponentMiss => Style::new().fg(Color::Green),
             LogType::Error => Style::new().fg(Color::Red),
-            LogType::Info => Style::new().fg(Color::Yellow)
+            LogType::Info => Style::new().fg(Color::Yellow),
+            LogType::Won => Style::new().fg(Color::Yellow),
         };
 
         Text::styled(self.content, style)
@@ -54,7 +56,9 @@ pub enum LogType {
     Error,
     Hit,
     Info,
+    Lost,
     Miss,
     OpponentHit,
     OpponentMiss,
+    Won,
 }
