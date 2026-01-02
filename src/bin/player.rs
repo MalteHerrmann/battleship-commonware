@@ -6,6 +6,7 @@ use std::{
 
 use battleship_commonware::{
     Config, application::actor::GameStateActor, config::parse_public_key, get_config_path,
+    gui::GuiActor,
 };
 
 use clap::arg;
@@ -13,14 +14,10 @@ use commonware_p2p::{Manager, authenticated::discovery};
 use commonware_runtime::{Metrics, Runner, tokio};
 use commonware_utils::NZU32;
 use governor::Quota;
-use tracing::info;
 
 const MAX_MESSAGE_SIZE: u16 = 1024;
 
 fn main() {
-    // Initialize the tracing subscriber to print to stdout.
-    tracing_subscriber::fmt::init();
-
     let command = clap::Command::new("battleship-commonware-player")
         .args([arg!(--"public-key" <PUBKEY> "the player's public key")]);
 
@@ -45,10 +42,6 @@ fn main() {
     )];
 
     // The p2p setup uses the local config for this proof-of-concept.
-    //
-    // TODO: does this have to be adjusted to check which key is running the binary?
-    // we'll have to support running two instances via CLI flags.
-    info!("setting up p2p config");
     let p2p_config = discovery::Config::local(
         signer.clone(),
         b"BATTLESHIP_NAMESPACE",
@@ -80,18 +73,32 @@ fn main() {
 
         // This registes the channel over which communication
         // about the game state will be implemented.
+        //
+        // Importantly, this only relates to the communication that happens over the p2p layer.
+        // The GUI actor that's set up below does not receive any information from another peer,
+        // hence it's not required to register the channel for the network.
+        // Instead, all updates to the GUI actor are driven internally in the same binary,
+        // controlled by the game state actor.
         let (gamestate_sender, gamestate_receiver) =
             network.register(0, Quota::per_second(NZU32!(1)), 1);
 
-        // Here we're setting up the actor that updates the game state.
+        // Here we're setting up the actor that updates the game state as well as
+        // the actor that is doing the TUI updates.
+        //
         // After the initial setup we have to start the actor, providing
         // the registered channels for p2p communication.
         //
-        // TODO: where to use the `gamestate_mailbox`? Shouldn't that be used to be passed into the start method maybe?
-        // do we even need the mailbox? Isn't that only for the case where the game state actor communicates with another actor?
-        let (gamestate_actor, _gamestate_mailbox) = GameStateActor::new(context, signer.clone());
+        // The game state actor then handles the exchange of game actions, etc. while
+        // driving the GUI actor to output the current state of the game.
+        let (gui_actor, gui_mailbox) = GuiActor::new(context.with_label("gui"));
+        let gamestate_actor = GameStateActor::new(
+            context.with_label("game state"),
+            gui_mailbox,
+            signer.clone(),
+        );
 
         gamestate_actor.start(gamestate_sender, gamestate_receiver);
+        gui_actor.start();
 
         network.start().await.expect("Network failed");
     });

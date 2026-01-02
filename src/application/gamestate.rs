@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::game;
+use crate::game::{self, Coordinate};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Move {
@@ -36,6 +36,11 @@ impl Move {
 
     pub fn get_y(&self) -> u8 {
         self.y
+    }
+
+    // TODO: use coordinate in this struct instead of x and y?
+    pub fn get_position(&self) -> String {
+        format!("{}", Coordinate::new(self.x, self.y, false))
     }
 
     pub fn validate(&self) -> eyre::Result<()> {

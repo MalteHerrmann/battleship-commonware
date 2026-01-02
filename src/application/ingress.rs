@@ -1,7 +1,6 @@
 use super::gamestate;
 
 use eyre;
-use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
 
 /// Message describes the available messages to be sent between
@@ -46,18 +45,5 @@ impl From<Message> for bytes::Bytes {
 impl From<bytes::Bytes> for Message {
     fn from(value: bytes::Bytes) -> Self {
         serde_yaml::from_slice(value.iter().as_slice()).expect("failed to deserialize bytes")
-    }
-}
-
-/// The application's mailbox that handles incoming messages.
-///
-/// TODO: remove if there are no other actors? I think this is only used for communication between different actors
-pub struct Mailbox {
-    sender: mpsc::Sender<Message>,
-}
-
-impl Mailbox {
-    pub fn new(sender: mpsc::Sender<Message>) -> Self {
-        Self { sender }
     }
 }

@@ -1,37 +1,32 @@
 /// The application's actor controls the message flow
 /// between the two participating nodes.
 use crate::game::{self, GRID_SIZE};
+use crate::gui::{Log, LogType, Mailbox as GuiMailbox, Message as GuiMessage};
 
-use super::{
-    gamestate::Move,
-    ingress::{Mailbox, Message},
-};
+use super::{gamestate::Move, ingress::Message};
+
+use tokio::io::{AsyncReadExt, stdin};
 
 use commonware_cryptography::Signer;
 use commonware_macros::select;
 use commonware_p2p::{Receiver, Recipients, Sender};
 use commonware_runtime::{ContextCell, Spawner, spawn_cell};
 use eyre::Context;
-use futures::channel::mpsc;
+use futures::SinkExt;
 use rand::{CryptoRng, Rng};
 use tokio::time::{Duration, sleep};
-use tracing::{debug, error, info};
-
-// TODO: use bigger mailbox size here?
-const MAILBOX_SIZE: usize = 1;
 
 /// The main actor that drives the communication between the participants,
 /// while maintaining track of the game state internally.
 ///
-/// TODO: I guess the [crate::game::Game] could be made into its own actor
+/// TODO: I guess the `crate::game::Game` could be made into its own actor
 /// as well and then receive driving updates through the channels.
 pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     context: ContextCell<R>,
     crypto: C,
-    // TODO: remove if not used?
-    namespace: Vec<u8>,
-    // TODO: what should mailbox be used for again? currently not in use.. is this only for messages to the actor from other actors in a more complex setup?
-    mailbox: mpsc::Receiver<Message>,
+
+    // The GUI mailbox will be used to send messages to the GUI actor.
+    gui_mailbox: GuiMailbox,
 
     /// Signals if the player is ready to start.
     is_ready: bool,
@@ -43,11 +38,13 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     my_turn: bool,
 
     /// The list of the exchanged moves.
-    /// TODO: change to hashmap
+    ///
+    /// TODO: change to hashmap maybe for better lookup of played moves? We don't really need to read the moves in order
+    /// as they're already printed in the TUI in order.
     moves: Vec<Move>,
 
     /// The list of the opponent's moves.
-    /// TODO: change to hashmap
+    /// TODO: change to hashmap for above reasons.
     ///
     /// TODO: should this be moved to the `Grid` implementation or the `Player`?
     opponent_moves: Vec<Move>,
@@ -58,28 +55,28 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
 
 impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// Create new application actor.
-    pub fn new(context: R, crypto: C) -> (Self, Mailbox) {
-        let (sender, mailbox) = mpsc::channel(MAILBOX_SIZE);
-        (
-            Self {
-                context: ContextCell::new(context),
-                crypto,
-                namespace: Vec::from("GAMESTATE_NAMESPACE"),
-                mailbox,
+    ///
+    /// NOTE: As opposed to many other implementations / use cases of the actor model using the
+    /// Commonware framework, we don't need to return a mailbox as output of this `new` method here,
+    /// because there is no entity sending messages to the `GameStateActor` at this present moment.
+    pub fn new(context: R, gui_mailbox: GuiMailbox, crypto: C) -> Self {
+        Self {
+            context: ContextCell::new(context),
+            crypto,
 
-                // Game logic
-                my_turn: false,
+            gui_mailbox,
 
-                is_ready: false,
-                moves: Vec::new(),
+            // Game logic
+            my_turn: false,
 
-                opponent_ready: false,
-                opponent_moves: Vec::new(),
+            is_ready: false,
+            moves: Vec::new(),
 
-                game: game::Player::new(),
-            },
-            Mailbox::new(sender),
-        )
+            opponent_ready: false,
+            opponent_moves: Vec::new(),
+
+            game: game::Player::new(),
+        }
     }
 
     pub fn start(
@@ -95,7 +92,6 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         sender: impl Sender<PublicKey = C::PublicKey>,
         mut receiver: impl Receiver<PublicKey = C::PublicKey>,
     ) {
-        // TODO: should this really use an unbounded loop here? Or do smth. like `while let Some(msg) = self.mailbox.next()`? But it's not guaranteed that this actor will immediately get a message sent to it...
         // TODO: should there e.g. be two separate actors? One that does the connection and the P2P stuff? And the other one that's just implemented the game logic? I guess this could be implemented at a later point but isn't required for it to run.
 
         loop {
@@ -110,12 +106,16 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                             ).await
                             .expect("failed to handle message");
                         },
-                        Err(_) => error!("failed to receive message"),
+                        Err(_) => self.log(LogType::Error, "failed to receive message")
+                            .await
+                            .expect("failed to log"),
                     }
                 },
-                _ = sleep(Duration::from_secs(10)) => {
+                _ = sleep(Duration::from_secs(2)) => {
                     if !self.game_ready() {
-                        info!("game not ready yet; sending ready message to other player");
+                        self.log(LogType::Debug, "game not ready yet; sending ready message to other player")
+                            .await
+                            .expect("failed to log");
 
                         self
                             .send(sender.clone(), Message::Ready)
@@ -129,7 +129,6 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                         let _ = &self.attack(sender.clone()).await.expect("failed to attack");
                     }
                 }
-                // TODO: do we need to check for messages in self.mailbox.next() here? where should that plug in? currently there's nothing sending to the mailbox?
             }
         }
     }
@@ -139,13 +138,21 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// TODO: should this take in the sender and receiver? Or rather use the mailbox of the actor here?
     async fn attack(&mut self, sender: impl Sender<PublicKey = C::PublicKey>) -> eyre::Result<()> {
         let mut unused = false;
-        let mut x: u8 = 0;
-        let mut y: u8 = 0;
+        // NOTE: the existing battleship-rs logic uses indices from 1..=grid_size.
+        let mut x: u8 = 1;
+        let mut y: u8 = 1;
 
+        // TODO: instead of generating this in a loop we can have a vector of all
+        // possible moves and then only calculate one random to take from the slice.
+        // On every move the used move is removed from the slice.
         while !unused {
-            x = fastrand::u8(0..=GRID_SIZE);
-            y = fastrand::u8(0..=GRID_SIZE);
-            debug!("generated new attack point: ({},{})", x, y);
+            x = fastrand::u8(1..=GRID_SIZE);
+            y = fastrand::u8(1..=GRID_SIZE);
+            self.log(
+                LogType::Debug,
+                &format!("generated new attack point: ({},{})", x, y),
+            )
+            .await?;
 
             unused = !self.moves.iter().any(|m| m.get_x() == x && m.get_y() == y)
         }
@@ -156,11 +163,30 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             m: current_move.clone(),
         };
 
-        info!("sending attack message: {:?}", msg);
+        self.log(
+            LogType::Debug,
+            &format!("sending attack message: {:?}", msg),
+        )
+        .await?;
         self.send(sender, msg).await?;
 
         self.moves.push(current_move);
         self.my_turn = false;
+
+        Ok(())
+    }
+
+    async fn draw_grid(&mut self) -> eyre::Result<()> {
+        let full_grid = [
+            self.game.opponent_grid.as_string(false)?,
+            self.game.grid.as_string(true)?,
+        ]
+        .join("\n");
+
+        self.gui_mailbox
+            .sender
+            .send(GuiMessage::Draw { grid: full_grid })
+            .await?;
 
         Ok(())
     }
@@ -202,24 +228,44 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 let is_hit = self.game.handle_attack(m.get_x(), m.get_y());
                 self.my_turn = true;
 
+                // Upon handling an attack we're sending the instruction
+                // for the GUI actor to draw the grids.
+                self.draw_grid().await?;
+
                 // we're sending the message back with the information if the attack was a hit or miss.
-                let _ = match is_hit {
+                match is_hit {
                     true => {
-                        info!("ship was hit");
+                        self.log(
+                            LogType::OpponentHit,
+                            &format!("💥 {}: opponent attack hit", m.get_position()),
+                        )
+                        .await?;
                         self.send(sender.clone(), Message::Hit { m: m.clone() })
                             .await?;
                         if self.game.lost() {
                             self.send(sender, Message::EndGame).await?;
-                            panic!("lost the game!")
-                        }
 
-                        Ok(())
+                            self.log(
+                                LogType::Lost,
+                                "💔💔💔 you lost the game; press any key to exit the game 💔💔💔",
+                            )
+                            .await?;
+                            let mut input = vec![];
+                            let _ = stdin().read(&mut input).await?;
+                            std::process::exit(0);
+                        }
                     }
-                    false => self.send(sender, Message::Miss { m }).await,
+                    false => {
+                        self.log(
+                            LogType::OpponentMiss,
+                            &format!("💦 {}: opponent attack missed", m.get_position()),
+                        )
+                        .await?;
+                        self.send(sender, Message::Miss { m }).await?
+                    }
                 };
 
-                self.game.print_attacks()?;
-                self.game.print_grid()
+                Ok(())
             }
             _ => Err(eyre::eyre!("wrong message type")),
         }
@@ -239,14 +285,24 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     return Err(eyre::eyre!("game not ready yet; can't process attack"));
                 }
 
-                info!("handling attack: {:?}", msg);
+                self.log(LogType::Debug, &format!("handling attack: {:?}", msg))
+                    .await?;
                 self.handle_attack(msg, sender).await?;
             }
-            Message::EndGame => panic!("you won the game!"),
-            Message::Hit { m } => self.update_opponent_grid(m, true)?,
-            Message::Miss { m } => self.update_opponent_grid(m, false)?,
+            Message::EndGame => {
+                self.log(
+                    LogType::Lost,
+                    "👑👑👑 you won the game; press any key to exit the game 👑👑👑",
+                )
+                .await?;
+                let mut input = vec![];
+                let _ = stdin().read(&mut input).await?;
+                std::process::exit(0);
+            }
+            Message::Hit { m } => self.update_opponent_grid(m, true).await?,
+            Message::Miss { m } => self.update_opponent_grid(m, false).await?,
             Message::Ready => {
-                info!("received ready message");
+                self.log(LogType::Debug, "received ready message").await?;
                 assert!(!self.game_ready(), "game is already marked as ready");
 
                 // We're sending a Ready message back so that the opponent is also informed of our readiness.
@@ -255,7 +311,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // signal readiness via P2P.
 
                 if !self.my_turn {
-                    info!("sending ready message back");
+                    self.log(LogType::Debug, "sending ready message back")
+                        .await?;
                     self.send(sender.clone(), Message::Ready)
                         .await
                         .expect("failed to send ready message");
@@ -269,6 +326,21 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         Ok(())
     }
 
+    async fn log(&mut self, log_type: LogType, content: &str) -> eyre::Result<()> {
+        if log_type == LogType::Debug {
+            // TODO: this could be extended to use a cli flag to set the allowed log level, but for now this is fine.
+            return Ok(());
+        }
+
+        self.gui_mailbox
+            .sender
+            .send(GuiMessage::Log {
+                log: Log::new(log_type, content.into()),
+            })
+            .await
+            .map_err(|e| e.into())
+    }
+
     /// Incrememnts the latest seen move number to yield the next number to play.
     fn next_move(&self) -> u16 {
         (self.moves.len() + self.opponent_moves.len() + 1) as u16
@@ -280,7 +352,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         mut sender: impl Sender<PublicKey = C::PublicKey>,
         message: Message,
     ) -> eyre::Result<()> {
-        debug!("sending message to peers: {:?}", message);
+        self.log(
+            LogType::Debug,
+            &format!("sending message to peers: {:?}", message),
+        )
+        .await?;
 
         if let Err(e) = sender.send(Recipients::All, message.into(), false).await {
             Err(e).wrap_err("failed to send message")
@@ -290,12 +366,29 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     /// Update the opponent's grid with a new attack.
-    fn update_opponent_grid(&mut self, mv: Move, is_hit: bool) -> eyre::Result<()> {
+    async fn update_opponent_grid(&mut self, mv: Move, is_hit: bool) -> eyre::Result<()> {
         if mv.validate().is_err() {
             return Err(eyre::eyre!("invalid move: {:?}", mv));
         }
 
-        debug!("updating opponent grid");
-        self.game.attack(mv.get_x(), mv.get_y(), is_hit)
+        self.game.attack(mv.get_x(), mv.get_y(), is_hit)?;
+        self.draw_grid().await?;
+
+        match is_hit {
+            true => {
+                self.log(
+                    LogType::Hit,
+                    &format!("☄️ {}: attack hit", mv.get_position()),
+                )
+                .await
+            }
+            false => {
+                self.log(
+                    LogType::Miss,
+                    &format!("💦 {}: attack missed", mv.get_position()),
+                )
+                .await
+            }
+        }
     }
 }
