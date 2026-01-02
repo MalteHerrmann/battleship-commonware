@@ -3,9 +3,9 @@ use std::io;
 use commonware_runtime::{ContextCell, Metrics, Spawner, spawn_cell};
 use futures::{StreamExt, channel::mpsc::{self, Receiver}};
 use rand::Rng;
-use ratatui::{Frame, Terminal, backend::CrosstermBackend, crossterm::{execute, terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode}}, layout::{Constraint, Layout, Rect}, widgets::{Block, Borders, List, ListItem, Paragraph}};
+use ratatui::{Frame, Terminal, backend::CrosstermBackend, crossterm::{execute, terminal::{EnterAlternateScreen, LeaveAlternateScreen}}, layout::{Constraint, Layout, Rect}, widgets::{Block, Borders, List, ListItem, Paragraph}};
 
-use super::ingress::{Log, LogType, Mailbox, Message};
+use super::ingress::{Log, Mailbox, Message};
 
 pub struct GuiActor<R: Rng + Spawner + Metrics> {
     context: ContextCell<R>,
@@ -24,7 +24,6 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
             },
             Mailbox::new(tx)
         )
-
     }
 
     pub fn start(
@@ -36,7 +35,6 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
     async fn run(
         mut self,
     ) {
-        // enable_raw_mode().expect("failed to set raw mode");
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen).expect("failed to execute gui macro");
         let backend = CrosstermBackend::new(stdout);
@@ -69,7 +67,6 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
             }).expect("failed to draw");
         } 
 
-        // disable_raw_mode().expect("failed to disable raw mode");
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen
@@ -88,6 +85,20 @@ impl<R: Rng + Spawner + Metrics> GuiActor<R> {
         frame.render_widget(empty_logs, right);
     }
 
+    // TODO: this could maybe print the own and opponent grids in two windows with
+    // the corresponding log section for own / opponent moves?
+    //
+    // |------------------------|
+    // |.|-------|...|--------|.|
+    // |.|..Grid.|...|..Logs..|.|
+    // |.|-------|...|--------|.|
+    // |.|..Opps.|...|..Logs..|.|
+    // |.|-------|...|--------|.|
+    // |-|--------------------|-|
+    // |-|...General Logs.....|-|
+    // |-|--------------------|-|
+    // |------------------------|
+    //
     pub fn draw_grid<'a>(&self, grid: &'a str) -> Paragraph<'a> {
         let block = Block::default()
             .title("Game State")

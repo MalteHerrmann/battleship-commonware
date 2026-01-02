@@ -5,7 +5,7 @@ use crate::gui::{Log, LogType, Mailbox as GuiMailbox, Message as GuiMessage};
 
 use super::{
     gamestate::Move,
-    ingress::{Mailbox, Message},
+    ingress::Message,
 };
 
 use tokio::io::{AsyncReadExt, stdin};
@@ -16,26 +16,19 @@ use commonware_p2p::{Receiver, Recipients, Sender};
 use commonware_runtime::{ContextCell, Spawner, spawn_cell};
 use eyre::Context;
 use futures::SinkExt;
-use futures::channel::mpsc;
 use rand::{CryptoRng, Rng};
 use tokio::time::{Duration, sleep};
-
-// TODO: use bigger mailbox size here? theoretically there should never be more than one message in the mailbox because of the ping-pong style architecture implemented here
-const MAILBOX_SIZE: usize = 1;
 
 /// The main actor that drives the communication between the participants,
 /// while maintaining track of the game state internally.
 ///
-/// TODO: I guess the [crate::game::Game] could be made into its own actor
+/// TODO: I guess the `crate::game::Game` could be made into its own actor
 /// as well and then receive driving updates through the channels.
 pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     context: ContextCell<R>,
     crypto: C,
-    // TODO: remove if not used?
-    namespace: Vec<u8>,
-    // TODO: what should mailbox be used for again? currently not in use.. is this only for messages to the actor from other actors in a more complex setup?
-    mailbox: mpsc::Receiver<Message>,
 
+    // The GUI mailbox will be used to send messages to the GUI actor.
     gui_mailbox: GuiMailbox,
 
     /// Signals if the player is ready to start.
@@ -65,30 +58,28 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
 
 impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// Create new application actor.
-    pub fn new(context: R, gui_mailbox: GuiMailbox, crypto: C) -> (Self, Mailbox) {
-        let (sender, mailbox) = mpsc::channel(MAILBOX_SIZE);
-        (
-            Self {
-                context: ContextCell::new(context),
-                crypto,
-                namespace: Vec::from("GAMESTATE_NAMESPACE"),
-                mailbox,
+    /// 
+    /// NOTE: As opposed to many other implementations / use cases of the actor model using the
+    /// Commonware framework, we don't need to return a mailbox as output of this `new` method here,
+    /// because there is no entity sending messages to the `GameStateActor` at this present moment.
+    pub fn new(context: R, gui_mailbox: GuiMailbox, crypto: C) -> Self {
+        Self {
+            context: ContextCell::new(context),
+            crypto,
 
-                gui_mailbox,
+            gui_mailbox,
 
-                // Game logic
-                my_turn: false,
+            // Game logic
+            my_turn: false,
 
-                is_ready: false,
-                moves: Vec::new(),
+            is_ready: false,
+            moves: Vec::new(),
 
-                opponent_ready: false,
-                opponent_moves: Vec::new(),
+            opponent_ready: false,
+            opponent_moves: Vec::new(),
 
-                game: game::Player::new(),
-            },
-            Mailbox::new(sender),
-        )
+            game: game::Player::new(),
+        }
     }
 
     pub fn start(
@@ -123,7 +114,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                             .expect("failed to log"),
                     }
                 },
-                _ = sleep(Duration::from_secs(4)) => {
+                _ = sleep(Duration::from_secs(2)) => {
                     if !self.game_ready() {
                         self.log(LogType::Debug, "game not ready yet; sending ready message to other player")
                             .await
@@ -141,7 +132,6 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                         let _ = &self.attack(sender.clone()).await.expect("failed to attack");
                     }
                 }
-                // TODO: do we need to check for messages in self.mailbox.next() here? where should that plug in? currently there's nothing sending to the mailbox?
             }
         }
     }

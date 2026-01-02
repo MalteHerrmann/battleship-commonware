@@ -48,16 +48,3 @@ impl From<bytes::Bytes> for Message {
         serde_yaml::from_slice(value.iter().as_slice()).expect("failed to deserialize bytes")
     }
 }
-
-/// The application's mailbox that handles incoming messages.
-///
-/// TODO: remove if there are no other actors? I think this is only used for communication between different actors
-pub struct Mailbox {
-    sender: mpsc::Sender<Message>,
-}
-
-impl Mailbox {
-    pub fn new(sender: mpsc::Sender<Message>) -> Self {
-        Self { sender }
-    }
-}
