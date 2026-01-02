@@ -251,7 +251,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                             )
                             .await?;
                             let mut input = vec![];
-                            stdin().read(&mut input).await?;
+                            let _ = stdin().read(&mut input).await?;
                             std::process::exit(0);
                         }
                     }
@@ -296,7 +296,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 )
                 .await?;
                 let mut input = vec![];
-                stdin().read(&mut input).await?;
+                let _ = stdin().read(&mut input).await?;
                 std::process::exit(0);
             }
             Message::Hit { m } => self.update_opponent_grid(m, true).await?,
