@@ -1,9 +1,12 @@
 use futures::channel::mpsc::Sender;
-use ratatui::{style::{Color, Style}, text::Text};
+use ratatui::{
+    style::{Color, Style},
+    text::Text,
+};
 
 /// TODO: check if lifetime would better be removed?
 pub struct Mailbox {
-    pub sender: Sender<Message>
+    pub sender: Sender<Message>,
 }
 
 impl Mailbox {
@@ -14,7 +17,7 @@ impl Mailbox {
 
 pub enum Message {
     Draw { grid: String },
-    Log { log: Log}
+    Log { log: Log },
 }
 
 #[derive(Clone)]
@@ -25,16 +28,13 @@ pub struct Log {
 
 impl Log {
     pub fn new(log_type: LogType, content: String) -> Log {
-        Self {
-            log_type,
-            content
-        }
+        Self { log_type, content }
     }
 }
 
-impl<'a> Into<Text<'a>> for Log {
-    fn into(self) -> Text<'a> {
-        let style = match self.log_type {
+impl<'a> From<Log> for Text<'a> {
+    fn from(val: Log) -> Self {
+        let style = match val.log_type {
             LogType::Debug => Style::new().fg(Color::DarkGray),
             LogType::Hit => Style::new().fg(Color::Green),
             LogType::Miss => Style::new().fg(Color::Red),
@@ -46,7 +46,7 @@ impl<'a> Into<Text<'a>> for Log {
             LogType::Won => Style::new().fg(Color::Yellow),
         };
 
-        Text::styled(self.content, style)
+        Text::styled(val.content, style)
     }
 }
 

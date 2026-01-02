@@ -5,10 +5,7 @@ use std::{
 };
 
 use battleship_commonware::{
-    application::actor::GameStateActor,
-    Config,
-    config::parse_public_key,
-    get_config_path,
+    Config, application::actor::GameStateActor, config::parse_public_key, get_config_path,
     gui::GuiActor,
 };
 
@@ -94,7 +91,11 @@ fn main() {
         // The game state actor then handles the exchange of game actions, etc. while
         // driving the GUI actor to output the current state of the game.
         let (gui_actor, gui_mailbox) = GuiActor::new(context.with_label("gui"));
-        let gamestate_actor = GameStateActor::new(context.with_label("game state"), gui_mailbox, signer.clone());
+        let gamestate_actor = GameStateActor::new(
+            context.with_label("game state"),
+            gui_mailbox,
+            signer.clone(),
+        );
 
         gamestate_actor.start(gamestate_sender, gamestate_receiver);
         gui_actor.start();

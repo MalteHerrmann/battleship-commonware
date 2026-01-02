@@ -3,10 +3,7 @@
 use crate::game::{self, GRID_SIZE};
 use crate::gui::{Log, LogType, Mailbox as GuiMailbox, Message as GuiMessage};
 
-use super::{
-    gamestate::Move,
-    ingress::Message,
-};
+use super::{gamestate::Move, ingress::Message};
 
 use tokio::io::{AsyncReadExt, stdin};
 
@@ -41,7 +38,7 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     my_turn: bool,
 
     /// The list of the exchanged moves.
-    /// 
+    ///
     /// TODO: change to hashmap maybe for better lookup of played moves? We don't really need to read the moves in order
     /// as they're already printed in the TUI in order.
     moves: Vec<Move>,
@@ -58,7 +55,7 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
 
 impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// Create new application actor.
-    /// 
+    ///
     /// NOTE: As opposed to many other implementations / use cases of the actor model using the
     /// Commonware framework, we don't need to return a mailbox as output of this `new` method here,
     /// because there is no entity sending messages to the `GameStateActor` at this present moment.
@@ -151,7 +148,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         while !unused {
             x = fastrand::u8(1..=GRID_SIZE);
             y = fastrand::u8(1..=GRID_SIZE);
-            self.log(LogType::Debug, &format!("generated new attack point: ({},{})", x, y)).await?;
+            self.log(
+                LogType::Debug,
+                &format!("generated new attack point: ({},{})", x, y),
+            )
+            .await?;
 
             unused = !self.moves.iter().any(|m| m.get_x() == x && m.get_y() == y)
         }
@@ -162,7 +163,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             m: current_move.clone(),
         };
 
-        self.log(LogType::Debug, &format!("sending attack message: {:?}", msg)).await?;
+        self.log(
+            LogType::Debug,
+            &format!("sending attack message: {:?}", msg),
+        )
+        .await?;
         self.send(sender, msg).await?;
 
         self.moves.push(current_move);
@@ -175,9 +180,13 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         let full_grid = [
             self.game.opponent_grid.as_string(false)?,
             self.game.grid.as_string(true)?,
-        ].join("\n");
+        ]
+        .join("\n");
 
-        self.gui_mailbox.sender.send(GuiMessage::Draw { grid: full_grid }).await?;
+        self.gui_mailbox
+            .sender
+            .send(GuiMessage::Draw { grid: full_grid })
+            .await?;
 
         Ok(())
     }
@@ -226,22 +235,34 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // we're sending the message back with the information if the attack was a hit or miss.
                 match is_hit {
                     true => {
-                        self.log(LogType::OpponentHit, &format!("💥 {}: opponent attack hit", m.get_position())).await?;
+                        self.log(
+                            LogType::OpponentHit,
+                            &format!("💥 {}: opponent attack hit", m.get_position()),
+                        )
+                        .await?;
                         self.send(sender.clone(), Message::Hit { m: m.clone() })
                             .await?;
                         if self.game.lost() {
                             self.send(sender, Message::EndGame).await?;
 
-                            self.log(LogType::Lost, "💔💔💔 you lost the game; press any key to exit the game 💔💔💔").await?;
+                            self.log(
+                                LogType::Lost,
+                                "💔💔💔 you lost the game; press any key to exit the game 💔💔💔",
+                            )
+                            .await?;
                             let mut input = vec![];
                             stdin().read(&mut input).await?;
                             std::process::exit(0);
                         }
                     }
                     false => {
-                        self.log(LogType::OpponentMiss, &format!("💦 {}: opponent attack missed", m.get_position())).await?;
+                        self.log(
+                            LogType::OpponentMiss,
+                            &format!("💦 {}: opponent attack missed", m.get_position()),
+                        )
+                        .await?;
                         self.send(sender, Message::Miss { m }).await?
-                    },
+                    }
                 };
 
                 Ok(())
@@ -264,19 +285,24 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     return Err(eyre::eyre!("game not ready yet; can't process attack"));
                 }
 
-                self.log(LogType::Debug, &format!("handling attack: {:?}", msg)).await?;
+                self.log(LogType::Debug, &format!("handling attack: {:?}", msg))
+                    .await?;
                 self.handle_attack(msg, sender).await?;
             }
             Message::EndGame => {
-                self.log(LogType::Lost, "👑👑👑 you won the game; press any key to exit the game 👑👑👑").await?;
+                self.log(
+                    LogType::Lost,
+                    "👑👑👑 you won the game; press any key to exit the game 👑👑👑",
+                )
+                .await?;
                 let mut input = vec![];
                 stdin().read(&mut input).await?;
                 std::process::exit(0);
-            },
+            }
             Message::Hit { m } => self.update_opponent_grid(m, true).await?,
             Message::Miss { m } => self.update_opponent_grid(m, false).await?,
             Message::Ready => {
-                self.log(LogType::Debug,"received ready message").await?;
+                self.log(LogType::Debug, "received ready message").await?;
                 assert!(!self.game_ready(), "game is already marked as ready");
 
                 // We're sending a Ready message back so that the opponent is also informed of our readiness.
@@ -285,7 +311,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // signal readiness via P2P.
 
                 if !self.my_turn {
-                    self.log(LogType::Debug,"sending ready message back").await?;
+                    self.log(LogType::Debug, "sending ready message back")
+                        .await?;
                     self.send(sender.clone(), Message::Ready)
                         .await
                         .expect("failed to send ready message");
@@ -302,14 +329,16 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     async fn log(&mut self, log_type: LogType, content: &str) -> eyre::Result<()> {
         if log_type == LogType::Debug {
             // TODO: this could be extended to use a cli flag to set the allowed log level, but for now this is fine.
-            return Ok(())
+            return Ok(());
         }
 
-        self.gui_mailbox.sender.send(
-            GuiMessage::Log { log: Log::new(log_type, content.into()) }
-        )
-        .await
-        .map_err(|e| e.into())
+        self.gui_mailbox
+            .sender
+            .send(GuiMessage::Log {
+                log: Log::new(log_type, content.into()),
+            })
+            .await
+            .map_err(|e| e.into())
     }
 
     /// Incrememnts the latest seen move number to yield the next number to play.
@@ -323,7 +352,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         mut sender: impl Sender<PublicKey = C::PublicKey>,
         message: Message,
     ) -> eyre::Result<()> {
-        self.log(LogType::Debug, &format!("sending message to peers: {:?}", message)).await?;
+        self.log(
+            LogType::Debug,
+            &format!("sending message to peers: {:?}", message),
+        )
+        .await?;
 
         if let Err(e) = sender.send(Recipients::All, message.into(), false).await {
             Err(e).wrap_err("failed to send message")
@@ -342,9 +375,20 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         self.draw_grid().await?;
 
         match is_hit {
-            true => self.log(LogType::Hit, &format!("☄️ {}: attack hit", mv.get_position())).await,
-            false => self.log(LogType::Miss, &format!("💦 {}: attack missed", mv.get_position())).await
+            true => {
+                self.log(
+                    LogType::Hit,
+                    &format!("☄️ {}: attack hit", mv.get_position()),
+                )
+                .await
+            }
+            false => {
+                self.log(
+                    LogType::Miss,
+                    &format!("💦 {}: attack missed", mv.get_position()),
+                )
+                .await
+            }
         }
-        
     }
 }

@@ -1,7 +1,6 @@
 use super::gamestate;
 
 use eyre;
-use futures::channel::mpsc;
 use serde::{Deserialize, Serialize};
 
 /// Message describes the available messages to be sent between
