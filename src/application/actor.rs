@@ -236,7 +236,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 // we're sending the message back with the information if the attack was a hit or miss.
                 match is_hit {
                     true => {
-                        self.log(LogType::OpponentHit, &format!("💥 {}-{}: opponent attack hit", m.get_x(), m.get_y())).await?;
+                        self.log(LogType::OpponentHit, &format!("💥 {}: opponent attack hit", m.get_position())).await?;
                         self.send(sender.clone(), Message::Hit { m: m.clone() })
                             .await?;
                         if self.game.lost() {
@@ -249,7 +249,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                         }
                     }
                     false => {
-                        self.log(LogType::OpponentMiss, &format!("💦 {}-{}: opponent attack missed", m.get_x(), m.get_y())).await?;
+                        self.log(LogType::OpponentMiss, &format!("💦 {}: opponent attack missed", m.get_position())).await?;
                         self.send(sender, Message::Miss { m }).await?
                     },
                 };
@@ -349,9 +349,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         }
 
         self.game.attack(mv.get_x(), mv.get_y(), is_hit)?;
+        self.draw_grid().await?;
+
         match is_hit {
-            true => self.log(LogType::Hit, &format!("☄️ {}-{}: attack hit", mv.get_x(), mv.get_y())).await,
-            false => self.log(LogType::Miss, &format!("💦 {}-{}: attack missed", mv.get_x(), mv.get_y())).await
+            true => self.log(LogType::Hit, &format!("☄️ {}: attack hit", mv.get_position())).await,
+            false => self.log(LogType::Miss, &format!("💦 {}: attack missed", mv.get_position())).await
         }
         
     }
