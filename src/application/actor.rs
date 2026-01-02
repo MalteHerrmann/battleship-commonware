@@ -18,7 +18,7 @@ use futures::channel::mpsc;
 use rand::{CryptoRng, Rng};
 use tokio::time::{Duration, sleep};
 
-// TODO: use bigger mailbox size here?
+// TODO: use bigger mailbox size here? theoretically there should never be more than one message in the mailbox because of the ping-pong style architecture implemented here
 const MAILBOX_SIZE: usize = 1;
 
 /// The main actor that drives the communication between the participants,
@@ -46,11 +46,13 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
     my_turn: bool,
 
     /// The list of the exchanged moves.
-    /// TODO: change to hashmap
+    /// 
+    /// TODO: change to hashmap maybe for better lookup of played moves? We don't really need to read the moves in order
+    /// as they're already printed in the TUI in order.
     moves: Vec<Move>,
 
     /// The list of the opponent's moves.
-    /// TODO: change to hashmap
+    /// TODO: change to hashmap for above reasons.
     ///
     /// TODO: should this be moved to the `Grid` implementation or the `Player`?
     opponent_moves: Vec<Move>,
@@ -100,7 +102,6 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         sender: impl Sender<PublicKey = C::PublicKey>,
         mut receiver: impl Receiver<PublicKey = C::PublicKey>,
     ) {
-        // TODO: should this really use an unbounded loop here? Or do smth. like `while let Some(msg) = self.mailbox.next()`? But it's not guaranteed that this actor will immediately get a message sent to it...
         // TODO: should there e.g. be two separate actors? One that does the connection and the P2P stuff? And the other one that's just implemented the game logic? I guess this could be implemented at a later point but isn't required for it to run.
 
         loop {
@@ -151,6 +152,9 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         let mut x: u8 = 0;
         let mut y: u8 = 0;
 
+        // TODO: instead of generating this in a loop we can have a vector of all
+        // possible moves and then only calculate one random to take from the slice.
+        // On every move the used move is removed from the slice.
         while !unused {
             x = fastrand::u8(0..=GRID_SIZE);
             y = fastrand::u8(0..=GRID_SIZE);
@@ -227,24 +231,24 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 self.draw_grid().await?;
 
                 // we're sending the message back with the information if the attack was a hit or miss.
-                let _ = match is_hit {
+                match is_hit {
                     true => {
-                        self.log(LogType::Hit, &format!("ship was hit: {}-{}", m.get_x(), m.get_y())).await?;
+                        self.log(LogType::OpponentHit, &format!("opponent attack hit: {}-{}", m.get_x(), m.get_y())).await?;
                         self.send(sender.clone(), Message::Hit { m: m.clone() })
                             .await?;
                         if self.game.lost() {
                             self.send(sender, Message::EndGame).await?;
+                            // TODO: wait for user input to end the game and return fully from the game.
                             panic!("lost the game!")
                         }
-
-                        Ok(())
                     }
-                    false => self.send(sender, Message::Miss { m }).await,
+                    false => {
+                        self.log(LogType::OpponentMiss, &format!("opponent attack missed: {}-{}", m.get_x(), m.get_y())).await?;
+                        self.send(sender, Message::Miss { m }).await?
+                    },
                 };
 
                 Ok(())
-                // self.game.print_attacks()?;
-                // self.game.print_grid()
             }
             _ => Err(eyre::eyre!("wrong message type")),
         }
@@ -295,6 +299,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     async fn log(&mut self, log_type: LogType, content: &str) -> eyre::Result<()> {
+        if log_type == LogType::Debug {
+            // TODO: this could be extended to use a cli flag to set the allowed log level, but for now this is fine.
+            return Ok(())
+        }
+
         self.gui_mailbox.sender.send(
             GuiMessage::Log { log: Log::new(log_type, content.into()) }
         )
@@ -328,7 +337,11 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             return Err(eyre::eyre!("invalid move: {:?}", mv));
         }
 
-        self.log(LogType::Debug, "updating opponent grid").await?;
-        self.game.attack(mv.get_x(), mv.get_y(), is_hit)
+        self.game.attack(mv.get_x(), mv.get_y(), is_hit)?;
+        match is_hit {
+            true => self.log(LogType::Hit, &format!("attack hit: {}-{}", mv.get_x(), mv.get_y())).await,
+            false => self.log(LogType::Miss, &format!("attack missed: {}-{}", mv.get_x(), mv.get_y())).await
+        }
+        
     }
 }

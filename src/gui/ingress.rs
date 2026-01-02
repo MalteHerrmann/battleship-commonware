@@ -38,6 +38,8 @@ impl<'a> Into<Text<'a>> for Log {
             LogType::Debug => Style::new().fg(Color::DarkGray),
             LogType::Hit => Style::new().fg(Color::Green),
             LogType::Miss => Style::new().fg(Color::Red),
+            LogType::OpponentHit => Style::new().fg(Color::Red),
+            LogType::OpponentMiss => Style::new().fg(Color::Green),
             LogType::Error => Style::new().fg(Color::Red),
             LogType::Info => Style::new().fg(Color::Yellow)
         };
@@ -46,11 +48,13 @@ impl<'a> Into<Text<'a>> for Log {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum LogType {
     Debug,
     Error,
     Hit,
     Info,
     Miss,
+    OpponentHit,
+    OpponentMiss,
 }
