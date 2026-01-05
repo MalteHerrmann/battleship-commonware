@@ -1,5 +1,7 @@
 use std::{
-    io, net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::Duration
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    str::FromStr,
+    time::Duration,
 };
 
 use battleship_commonware::{

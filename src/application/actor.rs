@@ -136,11 +136,10 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
 
                         self.my_turn = true; // we're having the first sender of the ready message have the first turn.
                         self.is_ready = true;
-                    } else if self.my_turn {
-                        if let Err(e) = &self.attack(sender.clone()).await {
+                    } else if self.my_turn
+                        && let Err(e) = &self.attack(sender.clone()).await {
                             self.end_game_with_log(LogType::Error, &format!("failed to attack: {}", e)).await;
                         };
-                    }
                 }
             }
         }
@@ -171,12 +170,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
 
         // NOTE: we're initializing the move as false since we don't know yet if this was successful or not.
         // It will be updated once we receive confirmation from the other peer.
-        let current_move = Move::new(
-            self.next_move(),
-            x,
-            y,
-            false,
-        );
+        let current_move = Move::new(self.next_move(), x, y, false);
 
         let msg = Message::Attack {
             m: current_move.clone(),
@@ -211,14 +205,13 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     async fn end_game_with_log(&mut self, log_type: LogType, content: &str) -> () {
-        self.must_log(
-            log_type,
-            content,
-        )
-        .await;
+        self.must_log(log_type, content).await;
 
         let mut input = vec![];
-        let _ = stdin().read(&mut input).await.expect("failed to receive user input");
+        let _ = stdin()
+            .read(&mut input)
+            .await
+            .expect("failed to receive user input");
         std::process::exit(0);
     }
 
@@ -256,7 +249,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 }
 
                 let is_hit = self.game.handle_attack(m.get_x(), m.get_y());
-                self.opponent_moves.push(Move::new(m.get_number(), m.get_x(), m.get_y(), is_hit));
+                self.opponent_moves
+                    .push(Move::new(m.get_number(), m.get_x(), m.get_y(), is_hit));
                 self.my_turn = true;
 
                 // Upon handling an attack we're sending the instruction
@@ -344,8 +338,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                 if !self.my_turn {
                     self.log(LogType::Debug, "sending ready message back")
                         .await?;
-                    self.send(sender.clone(), Message::Ready)
-                        .await?;
+                    self.send(sender.clone(), Message::Ready).await?;
                 }
 
                 self.opponent_ready = true;
@@ -435,15 +428,21 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         self.log(LogType::Debug, &format!("got LLM result: {}", output))
             .await?;
 
-        let parsed = match Regex::new("[A-Z][0-9]").unwrap().find(&output.trim()) {
+        let parsed = match Regex::new("[A-Z][0-9]").unwrap().find(output.trim()) {
             Some(m) => m.as_str(),
-            None => return Ok((1,1)) // TODO: this returns a default right now, maybe do something else here?
+            None => return Ok((1, 1)), // TODO: this returns a default right now, maybe do something else here?
         };
 
         let mut coord = Coordinate::default();
         match Coordinate::try_from(parsed.to_string()) {
             Ok(c) => coord = c,
-            Err(_) => self.end_game_with_log(LogType::Error, &format!("failed to parse coordinate from llm output: {}", output)).await,
+            Err(_) => {
+                self.end_game_with_log(
+                    LogType::Error,
+                    &format!("failed to parse coordinate from llm output: {}", output),
+                )
+                .await
+            }
         }
 
         Ok((coord.x, coord.y))
@@ -456,7 +455,10 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         }
 
         let length = self.moves.len() - 1;
-        self.moves.get_mut(length).expect("failed to get last move").is_hit = is_hit;
+        self.moves
+            .get_mut(length)
+            .expect("failed to get last move")
+            .is_hit = is_hit;
 
         self.game.attack(mv.get_x(), mv.get_y(), is_hit)?;
         self.draw_grid().await?;
