@@ -21,6 +21,9 @@ use tokio::time::{Duration, sleep};
 /// The main actor that drives the communication between the participants,
 /// while maintaining track of the game state internally.
 ///
+/// This actor uses an LLM model to compute strategic moves based on the game history,
+/// rather than making random attacks.
+///
 /// TODO: I guess the `crate::game::Game` could be made into its own actor
 /// as well and then receive driving updates through the channels.
 pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
@@ -397,6 +400,13 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     /// Prompts the configured LLM for the next move.
+    ///
+    /// Constructs a prompt containing the game grid size and all previously played moves,
+    /// then sends it to the LLM model. The model's response is parsed to extract a coordinate
+    /// in the format "A1", "B2", etc., which is then converted to (x, y) coordinates.
+    ///
+    /// Returns the (x, y) coordinates of the suggested move, or a default coordinate (1, 1)
+    /// if parsing fails.
     async fn prompt_for_next_move(&mut self) -> eyre::Result<(u8, u8)> {
         let played_moves = self
             .moves

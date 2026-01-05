@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::game::{self, Coordinate};
 
+/// Represents a single move in the battleship game.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Move {
     /// The move number in the game.
@@ -10,7 +11,7 @@ pub struct Move {
     x: u8,
     /// The y-coordinate that is attacked.
     y: u8,
-    /// Specifies if the played move was successful or not.
+    /// Specifies if the played move was successful (hit a ship) or not.
     pub is_hit: bool,
 }
 

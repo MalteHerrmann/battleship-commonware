@@ -8,6 +8,10 @@
 /// an existing codebase in Rust with the Commonware set of
 /// utilities.
 ///
+/// The game uses LLM models (via the `parrot` crate) to make strategic moves
+/// instead of random attacks. The LLM analyzes past moves and suggests the next
+/// tactical move to play.
+///
 /// ## Usage
 ///
 /// It is required to set up two players, that will connect via P2P.
