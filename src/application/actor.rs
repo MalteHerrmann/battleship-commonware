@@ -5,6 +5,7 @@ use crate::gui::{Log, LogType, Mailbox as GuiMailbox, Message as GuiMessage};
 
 use super::{gamestate::Move, ingress::Message};
 
+use regex::Regex;
 use tokio::io::{AsyncReadExt, stdin};
 
 use commonware_cryptography::Signer;
@@ -424,8 +425,13 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         self.log(LogType::Debug, &format!("got LLM result: {}", output))
             .await?;
 
+        let parsed = match Regex::new("[A-Z][0-9]").unwrap().find(&output.trim()) {
+            Some(m) => m.as_str(),
+            None => return Ok((1,1)) // TODO: this returns a default right now, maybe do something else here?
+        };
+
         let mut coord = Coordinate::default();
-        match Coordinate::try_from(output.trim().to_string()) {
+        match Coordinate::try_from(parsed.to_string()) {
             Ok(c) => coord = c,
             Err(_) => self.end_game_with_log(LogType::Error, &format!("failed to parse coordinate from llm output: {}", output)).await,
         }

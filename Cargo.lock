@@ -228,6 +228,7 @@ dependencies = [
  "parrot",
  "rand",
  "ratatui",
+ "regex",
  "serde",
  "serde_yaml",
  "tempfile",
