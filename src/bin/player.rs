@@ -1,7 +1,5 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
-    time::Duration,
+    io, net::{IpAddr, Ipv4Addr, SocketAddr}, str::FromStr, time::Duration
 };
 
 use battleship_commonware::{
@@ -14,6 +12,7 @@ use commonware_p2p::{Manager, authenticated::discovery};
 use commonware_runtime::{Metrics, Runner, tokio};
 use commonware_utils::NZU32;
 use governor::Quota;
+use parrot::llm::Model;
 
 const MAX_MESSAGE_SIZE: u16 = 1024;
 
@@ -27,6 +26,17 @@ fn main() {
             .expect("must provide --public-key"),
     )
     .expect("id must be valid u16");
+
+    let mut available_models: Vec<Box<dyn Model>> = parrot::llm::get_available_models()
+        .expect("failed to get available ai models")
+        .into_iter()
+        // TODO: remove filtering, replace with user selection
+        .filter(|m| m.get_name().to_lowercase().contains("cursor"))
+        .collect();
+    assert!(!available_models.is_empty(), "no available llms found");
+
+    // NOTE: here we're using .remove(0) to create an owned copy of the Box. When indexing the vector using [0], it's returning a borrowed instance.
+    let model = available_models.remove(0);
 
     // We're creating the private keys here that will communicate over the p2p
     // connection, in order to exchange messages about the intended moves in the game.
@@ -95,6 +105,7 @@ fn main() {
             context.with_label("game state"),
             gui_mailbox,
             signer.clone(),
+            model,
         );
 
         gamestate_actor.start(gamestate_sender, gamestate_receiver);
