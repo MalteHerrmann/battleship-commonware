@@ -225,8 +225,10 @@ dependencies = [
  "futures",
  "governor",
  "log",
+ "parrot",
  "rand",
  "ratatui",
+ "regex",
  "serde",
  "serde_yaml",
  "tempfile",
@@ -1909,6 +1911,13 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "parrot"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.17",
 ]
 
 [[package]]

@@ -1,10 +1,11 @@
 /// The application's actor controls the message flow
 /// between the two participating nodes.
-use crate::game::{self, GRID_SIZE};
+use crate::game::{self, Coordinate};
 use crate::gui::{Log, LogType, Mailbox as GuiMailbox, Message as GuiMessage};
 
 use super::{gamestate::Move, ingress::Message};
 
+use regex::Regex;
 use tokio::io::{AsyncReadExt, stdin};
 
 use commonware_cryptography::Signer;
@@ -13,11 +14,15 @@ use commonware_p2p::{Receiver, Recipients, Sender};
 use commonware_runtime::{ContextCell, Spawner, spawn_cell};
 use eyre::Context;
 use futures::SinkExt;
+use parrot::llm::Model;
 use rand::{CryptoRng, Rng};
 use tokio::time::{Duration, sleep};
 
 /// The main actor that drives the communication between the participants,
 /// while maintaining track of the game state internally.
+///
+/// This actor uses an LLM model to compute strategic moves based on the game history,
+/// rather than making random attacks.
 ///
 /// TODO: I guess the `crate::game::Game` could be made into its own actor
 /// as well and then receive driving updates through the channels.
@@ -27,6 +32,16 @@ pub struct GameStateActor<R: Rng + CryptoRng + Spawner, C: Signer> {
 
     // The GUI mailbox will be used to send messages to the GUI actor.
     gui_mailbox: GuiMailbox,
+
+    // The LLM model that's used to compute the game moves.
+    //
+    // NOTE: we're keeping this as a Box since there's a runtime selection of the used
+    // model so this might be changing depending on the system that's running it.
+    //
+    // If we were to enforce implementing a concrete type that's implementing this crate
+    // it would make sense to add another trait bound to the `GameStateActor`, but that
+    // would moreso apply to a library situation, not here.
+    model: Box<dyn Model>,
 
     /// Signals if the player is ready to start.
     is_ready: bool,
@@ -59,12 +74,13 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     /// NOTE: As opposed to many other implementations / use cases of the actor model using the
     /// Commonware framework, we don't need to return a mailbox as output of this `new` method here,
     /// because there is no entity sending messages to the `GameStateActor` at this present moment.
-    pub fn new(context: R, gui_mailbox: GuiMailbox, crypto: C) -> Self {
+    pub fn new(context: R, gui_mailbox: GuiMailbox, crypto: C, model: Box<dyn Model>) -> Self {
         Self {
             context: ContextCell::new(context),
             crypto,
 
             gui_mailbox,
+            model,
 
             // Game logic
             my_turn: false,
@@ -92,41 +108,38 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         sender: impl Sender<PublicKey = C::PublicKey>,
         mut receiver: impl Receiver<PublicKey = C::PublicKey>,
     ) {
-        // TODO: should there e.g. be two separate actors? One that does the connection and the P2P stuff? And the other one that's just implemented the game logic? I guess this could be implemented at a later point but isn't required for it to run.
-
         loop {
             select! {
                 // We're waiting to receive an incoming message from the opponent
                 msg = receiver.recv() => {
                     match msg {
                         Ok((_, message_bytes)) => {
-                            self.handle_message(
+                            if let Err(e) = self.handle_message(
                                 sender.clone(),
                                 Message::from(message_bytes)
                             ).await
-                            .expect("failed to handle message");
+                            { self.end_game_with_log(LogType::Error, &format!("got error: {:?}", e)).await };
                         },
-                        Err(_) => self.log(LogType::Error, "failed to receive message")
-                            .await
-                            .expect("failed to log"),
+                        Err(_) => self.end_game_with_log(LogType::Error, "failed to receive message").await,
                     }
                 },
-                _ = sleep(Duration::from_secs(2)) => {
+                _ = sleep(Duration::from_secs(4)) => {
                     if !self.game_ready() {
-                        self.log(LogType::Debug, "game not ready yet; sending ready message to other player")
-                            .await
-                            .expect("failed to log");
+                        self.must_log(LogType::Debug, "game not ready yet; sending ready message to other player")
+                            .await;
 
-                        self
+                        if let Err(e) = self
                             .send(sender.clone(), Message::Ready)
-                            .await
-                            .expect("failed to send ready message");
+                            .await {
+                                self.end_game_with_log(LogType::Error, &format!("failed to send ready message: {}", e)).await;
+                            }
 
                         self.my_turn = true; // we're having the first sender of the ready message have the first turn.
                         self.is_ready = true;
-
                     } else if self.my_turn {
-                        let _ = &self.attack(sender.clone()).await.expect("failed to attack");
+                        if let Err(e) = &self.attack(sender.clone()).await {
+                            self.end_game_with_log(LogType::Error, &format!("failed to attack: {}", e)).await;
+                        };
                     }
                 }
             }
@@ -134,10 +147,9 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     /// Sends a computed move for the game via the p2p layer.
-    ///
-    /// TODO: should this take in the sender and receiver? Or rather use the mailbox of the actor here?
     async fn attack(&mut self, sender: impl Sender<PublicKey = C::PublicKey>) -> eyre::Result<()> {
         let mut unused = false;
+
         // NOTE: the existing battleship-rs logic uses indices from 1..=grid_size.
         let mut x: u8 = 1;
         let mut y: u8 = 1;
@@ -146,8 +158,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         // possible moves and then only calculate one random to take from the slice.
         // On every move the used move is removed from the slice.
         while !unused {
-            x = fastrand::u8(1..=GRID_SIZE);
-            y = fastrand::u8(1..=GRID_SIZE);
+            (x, y) = self.prompt_for_next_move().await?;
+
             self.log(
                 LogType::Debug,
                 &format!("generated new attack point: ({},{})", x, y),
@@ -157,7 +169,14 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             unused = !self.moves.iter().any(|m| m.get_x() == x && m.get_y() == y)
         }
 
-        let current_move = Move::new(self.next_move(), self.crypto.public_key().to_string(), x, y);
+        // NOTE: we're initializing the move as false since we don't know yet if this was successful or not.
+        // It will be updated once we receive confirmation from the other peer.
+        let current_move = Move::new(
+            self.next_move(),
+            x,
+            y,
+            false,
+        );
 
         let msg = Message::Attack {
             m: current_move.clone(),
@@ -189,6 +208,18 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             .await?;
 
         Ok(())
+    }
+
+    async fn end_game_with_log(&mut self, log_type: LogType, content: &str) -> () {
+        self.must_log(
+            log_type,
+            content,
+        )
+        .await;
+
+        let mut input = vec![];
+        let _ = stdin().read(&mut input).await.expect("failed to receive user input");
+        std::process::exit(0);
     }
 
     /// Checks if the game is ready to be played.
@@ -224,8 +255,8 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     return Err(eyre::eyre!("move already played"));
                 }
 
-                self.opponent_moves.push(m.clone());
                 let is_hit = self.game.handle_attack(m.get_x(), m.get_y());
+                self.opponent_moves.push(Move::new(m.get_number(), m.get_x(), m.get_y(), is_hit));
                 self.my_turn = true;
 
                 // Upon handling an attack we're sending the instruction
@@ -314,8 +345,7 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
                     self.log(LogType::Debug, "sending ready message back")
                         .await?;
                     self.send(sender.clone(), Message::Ready)
-                        .await
-                        .expect("failed to send ready message");
+                        .await?;
                 }
 
                 self.opponent_ready = true;
@@ -327,10 +357,10 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
     }
 
     async fn log(&mut self, log_type: LogType, content: &str) -> eyre::Result<()> {
-        if log_type == LogType::Debug {
-            // TODO: this could be extended to use a cli flag to set the allowed log level, but for now this is fine.
-            return Ok(());
-        }
+        // if log_type == LogType::Debug {
+        //     // TODO: this could be extended to use a cli flag to set the allowed log level, but for now this is fine.
+        //     return Ok(());
+        // }
 
         self.gui_mailbox
             .sender
@@ -339,6 +369,10 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
             })
             .await
             .map_err(|e| e.into())
+    }
+
+    async fn must_log(&mut self, log_type: LogType, content: &str) -> () {
+        self.log(log_type, content).await.expect("failed to log");
     }
 
     /// Incrememnts the latest seen move number to yield the next number to play.
@@ -365,11 +399,64 @@ impl<R: Rng + CryptoRng + Spawner, C: Signer> GameStateActor<R, C> {
         }
     }
 
+    /// Prompts the configured LLM for the next move.
+    ///
+    /// Constructs a prompt containing the game grid size and all previously played moves,
+    /// then sends it to the LLM model. The model's response is parsed to extract a coordinate
+    /// in the format "A1", "B2", etc., which is then converted to (x, y) coordinates.
+    ///
+    /// Returns the (x, y) coordinates of the suggested move, or a default coordinate (1, 1)
+    /// if parsing fails.
+    async fn prompt_for_next_move(&mut self) -> eyre::Result<(u8, u8)> {
+        let played_moves = self
+            .moves
+            .iter()
+            .map(|m| m.get_position())
+            .collect::<Vec<String>>()
+            .join(",");
+
+        let prompt = format!(
+            r#"
+            You're playing a game of battleship on a {}x{} grid.
+            You're supposed to identify the next move that's reasonable for you to win this game.
+            DO NOT create any code.
+            You MUST purely provide a tactically sensible move as the output of this prompt.
+            I am going to provide the list of past moves to you and you need to decide on the next move to play.
+            If no previous moves have been played, just attack a random field in the grid.
+            The past moves have been the following: ({}).
+            You MUST ONLY return the next field in the form of e.g. 'A1', 'B2', etc. and nothing else!!
+            This output will be parsed so it's mandatory to NOT INCLUDE ANYTHING EXCEPT THE COORDINATE!!!
+            (no comments, no formatting, NOTHING)
+            "#,
+            self.game.grid.width, self.game.grid.height, played_moves,
+        );
+
+        let output = self.model.prompt(&prompt)?;
+        self.log(LogType::Debug, &format!("got LLM result: {}", output))
+            .await?;
+
+        let parsed = match Regex::new("[A-Z][0-9]").unwrap().find(&output.trim()) {
+            Some(m) => m.as_str(),
+            None => return Ok((1,1)) // TODO: this returns a default right now, maybe do something else here?
+        };
+
+        let mut coord = Coordinate::default();
+        match Coordinate::try_from(parsed.to_string()) {
+            Ok(c) => coord = c,
+            Err(_) => self.end_game_with_log(LogType::Error, &format!("failed to parse coordinate from llm output: {}", output)).await,
+        }
+
+        Ok((coord.x, coord.y))
+    }
+
     /// Update the opponent's grid with a new attack.
     async fn update_opponent_grid(&mut self, mv: Move, is_hit: bool) -> eyre::Result<()> {
         if mv.validate().is_err() {
             return Err(eyre::eyre!("invalid move: {:?}", mv));
         }
+
+        let length = self.moves.len() - 1;
+        self.moves.get_mut(length).expect("failed to get last move").is_hit = is_hit;
 
         self.game.attack(mv.get_x(), mv.get_y(), is_hit)?;
         self.draw_grid().await?;

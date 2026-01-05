@@ -12,6 +12,7 @@ pub enum Message {
     /// Signals the end of the game based on all ships of one player being hit.
     EndGame,
     /// Signals that a move has successfully hit a ship.
+    /// TODO: unify? is_hit is now contain in `Move`
     Hit { m: gamestate::Move },
     /// Signals that a move has failed to hit a target.
     Miss { m: gamestate::Move },

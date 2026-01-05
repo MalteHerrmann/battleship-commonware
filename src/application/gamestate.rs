@@ -2,27 +2,27 @@ use serde::{Deserialize, Serialize};
 
 use crate::game::{self, Coordinate};
 
+/// Represents a single move in the battleship game.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Move {
     /// The move number in the game.
     number: u16,
-    /// The public key of the player.
-    ///
-    /// TODO: this really doesn't matter and is not used anywhere.. remove?
-    player: String,
     /// The x-coordinate that is attacked.
     x: u8,
     /// The y-coordinate that is attacked.
     y: u8,
+    /// Specifies if the played move was successful (hit a ship) or not.
+    pub is_hit: bool,
 }
 
 impl Move {
-    pub fn new(number: u16, player: String, x: u8, y: u8) -> Self {
+    // TODO: unify with `Coordinate` from the `game` implementation?
+    pub fn new(number: u16, x: u8, y: u8, is_hit: bool) -> Self {
         Self {
             number,
-            player,
             x,
             y,
+            is_hit,
         }
     }
 
@@ -40,7 +40,7 @@ impl Move {
 
     // TODO: use coordinate in this struct instead of x and y?
     pub fn get_position(&self) -> String {
-        format!("{}", Coordinate::new(self.x, self.y, false))
+        format!("{}", Coordinate::new(self.x, self.y, self.is_hit))
     }
 
     pub fn validate(&self) -> eyre::Result<()> {
